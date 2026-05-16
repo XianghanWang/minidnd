@@ -17,35 +17,36 @@ CARD_ROWS = 5
 BOSS_GRID_ROWS = 3
 BOSS_GRID_COLS = 3
 
-# Colors (hand-drawn ink-on-parchment style - like a pen sketch)
-COLOR_BG = (35, 30, 28)              # Dark dungeon void (unexplored)
-COLOR_TABLE = (90, 65, 40)           # Wood table base
-COLOR_TABLE_DARK = (70, 50, 30)      # Wood grain line
-COLOR_TABLE_LIGHT = (110, 80, 50)    # Wood grain highlight
-COLOR_CARD_EDGE = (220, 210, 190)    # Card border/edge cream
-COLOR_CARD_SHADOW = (30, 25, 20, 120)  # Card drop shadow
-COLOR_ROAD = (130, 120, 100)          # Visible stone floor
-COLOR_WALL = (65, 55, 50)            # Dark dungeon wall (contrast with floor)
-COLOR_WALL_HATCH = (80, 70, 60)      # Brick pattern on walls
-COLOR_DOOR = (175, 140, 85)          # Wooden door brown
-COLOR_DOOR_LOCKED = (140, 105, 60)   # Darker locked door
-COLOR_CHEST = (200, 170, 70)         # Treasure gold-ish
-COLOR_PLAYER = (60, 160, 220)        # Player pawns stay colorful
-COLOR_MONSTER = (200, 50, 50)        # Monster accent
-COLOR_BOSS = (180, 30, 180)          # Boss accent
-COLOR_INK = (35, 30, 25)             # Primary ink color
-COLOR_INK_LIGHT = (120, 110, 90)     # Lighter ink for details
-COLOR_UI_BG = (35, 30, 25)           # Dark panel
-COLOR_UI_TEXT = (240, 230, 210)       # Cream text on dark
-COLOR_UI_HIGHLIGHT = (255, 200, 80)   # Gold highlight
-COLOR_UI_BUTTON = (60, 50, 40)        # Button bg
-COLOR_UI_BUTTON_HOVER = (90, 75, 55)  # Button hover
-COLOR_HEALTH_BAR = (180, 40, 40)      # Red health
-COLOR_HEALTH_BG = (80, 60, 60)        # Health bg
-COLOR_AP_BAR = (50, 160, 50)          # Green AP
-COLOR_GRID_LINE = (100, 95, 80)       # Subtle grid on stone
-COLOR_PARCHMENT = (235, 225, 200)    # Light parchment
-COLOR_PARCHMENT_DARK = (210, 195, 170)  # Darker parchment
+# Colors (Micro Dungeon PnP style - black table, white cards, bold ink)
+COLOR_BG = (15, 12, 10)              # Near-black void
+COLOR_TABLE = (20, 18, 15)           # Pure black table
+COLOR_TABLE_DARK = (12, 10, 8)       # Table shadow
+COLOR_TABLE_LIGHT = (30, 25, 20)     # Subtle table highlight
+COLOR_CARD_EDGE = (200, 195, 185)    # Off-white card border
+COLOR_CARD_SHADOW = (0, 0, 0, 160)   # Deep card drop shadow
+COLOR_CARD_FILL = (240, 235, 225)    # White card interior
+COLOR_ROAD = (235, 230, 218)         # White floor (card surface)
+COLOR_WALL = (45, 40, 35)            # Near-black wall (bold ink)
+COLOR_WALL_HATCH = (65, 58, 50)      # Cross-hatch accent
+COLOR_DOOR = (160, 130, 70)          # Wooden door
+COLOR_DOOR_LOCKED = (130, 100, 50)   # Darker locked door
+COLOR_CHEST = (210, 175, 50)         # Treasure gold
+COLOR_PLAYER = (50, 130, 200)        # Player blue token
+COLOR_MONSTER = (200, 45, 45)        # Monster red
+COLOR_BOSS = (160, 30, 160)          # Boss purple
+COLOR_INK = (25, 20, 15)             # Bold black ink
+COLOR_INK_LIGHT = (100, 90, 75)      # Light ink for details
+COLOR_UI_BG = (25, 22, 18)           # Near-black panel
+COLOR_UI_TEXT = (235, 230, 218)       # White text
+COLOR_UI_HIGHLIGHT = (240, 190, 60)  # Gold highlight
+COLOR_UI_BUTTON = (50, 45, 38)       # Dark button
+COLOR_UI_BUTTON_HOVER = (75, 65, 52) # Button hover
+COLOR_HEALTH_BAR = (190, 40, 40)     # Red health
+COLOR_HEALTH_BG = (70, 55, 55)       # Health bg
+COLOR_AP_BAR = (50, 160, 50)         # Green AP
+COLOR_GRID_LINE = (195, 190, 178)    # Subtle grid on white card
+COLOR_PARCHMENT = (240, 235, 225)    # White card surface
+COLOR_PARCHMENT_DARK = (220, 212, 198)  # Slightly aged card
 
 # Character definitions
 CHARACTERS = {
@@ -156,9 +157,36 @@ SKILLS = {
             "key": "2",
         },
     ],
+    "Boss": [
+        {
+            "name": "Dark Bolt",
+            "description": "Ranged dark energy bolt (8 dmg, range 4)",
+            "damage": 8,
+            "target": "ranged",
+            "range": 4,
+            "cooldown": 2,
+            "effect": "damage",
+        },
+        {
+            "name": "Stomp",
+            "description": "AoE shockwave: 5 dmg to all adjacent",
+            "damage": 5,
+            "target": "aoe_around_self",
+            "range": 2,
+            "cooldown": 3,
+            "effect": "aoe_self",
+        },
+        {
+            "name": "Summon",
+            "description": "Summon a skeleton minion",
+            "damage": 0,
+            "target": "self",
+            "cooldown": 5,
+            "effect": "summon",
+            "summon_type": "Skeleton",
+        },
+    ],
 }
-
-# Monster definitions
 MONSTERS = {
     "Goblin": {
         "attack": 2,
@@ -224,14 +252,15 @@ MONSTERS = {
         "action_points": 2,
     },
     "Boss": {
-        "attack": 8,
-        "health": 60,
+        "attack": 10,
+        "health": 80,
         "speed": 1,
         "color": (180, 30, 180),
-        "territory": 8,
+        "territory": 12,
         "xp": 0,
-        "action_points": 3,
+        "action_points": 4,
         "size": 2,  # 2x2 tiles
+        "attack_range": 3,
     },
 }
 

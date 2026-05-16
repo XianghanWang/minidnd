@@ -235,8 +235,20 @@ class GameLogic:
             return
 
         # Awake monster logic
+        # Boss/elite: try skills first
+        if monster.skills and self._try_monster_skill(monster):
+            return
+
         adjacent_player = self._get_adjacent_player(monster)
         player_in_territory = self._find_player_in_territory(monster)
+
+        # Ranged attack for monsters with attack_range > 1
+        if not adjacent_player and monster.attack_range > 1:
+            ranged_target = self._find_player_in_range(monster, monster.attack_range)
+            if ranged_target:
+                monster.state = "chasing"
+                self._monster_attack(monster, ranged_target)
+                return
 
         if adjacent_player:
             monster.state = "chasing"
@@ -366,6 +378,135 @@ class GameLogic:
                     if p.is_alive() and p.world_row == tr and p.world_col == tc:
                         return False
         return True
+
+    def _find_player_in_range(self, monster, max_range):
+        """Find nearest alive player within max_range tiles of monster."""
+        nearest = None
+        nearest_dist = float('inf')
+        for player in self.players:
+            if player.is_alive():
+                min_dist = float('inf')
+                for r, c in monster.get_occupied_tiles():
+                    d = abs(player.world_row - r) + abs(player.world_col - c)
+                    min_dist = min(min_dist, d)
+                if min_dist <= max_range and min_dist < nearest_dist:
+                    nearest_dist = min_dist
+                    nearest = player
+        return nearest
+
+    def _try_monster_skill(self, monster):
+        """Try to use a monster skill. Returns True if a skill was used."""
+        for i, skill in enumerate(monster.skills):
+            if monster.skill_cooldowns[i] > 0:
+                continue
+
+            effect = skill.get("effect", "")
+            skill_range = skill.get("range", 1)
+
+            if effect == "damage":
+                # Ranged bolt - use when player is in range but not adjacent
+                target = self._find_player_in_range(monster, skill_range)
+                if target:
+                    adj = self._get_adjacent_player(monster)
+                    # Prefer ranged skill when target is far
+                    if not adj or random.random() < 0.5:
+                        self._execute_monster_skill(monster, i, skill, target)
+                        return True
+
+            elif effect == "aoe_self":
+                # AoE stomp - use when player is adjacent
+                adj = self._get_adjacent_player(monster)
+                if adj:
+                    self._execute_monster_skill(monster, i, skill, None)
+                    return True
+
+            elif effect == "summon":
+                # Summon - use when guards are thinning out
+                alive_guards = sum(1 for m in self.world.get_alive_monsters()
+                                   if m != monster)
+                if alive_guards < 3:
+                    self._execute_monster_skill(monster, i, skill, None)
+                    return True
+
+        return False
+
+    def _execute_monster_skill(self, monster, skill_index, skill, target):
+        """Execute a monster skill."""
+        from entities import Monster as MonsterClass
+        effect = skill.get("effect", "")
+        monster.skill_cooldowns[skill_index] = skill.get("cooldown", 3)
+
+        if effect == "damage":
+            # Ranged attack on single target
+            dmg = skill["damage"]
+            self.pending_animations.append({
+                "type": "monster_claw",
+                "world_row": target.world_row,
+                "world_col": target.world_col,
+                "damage": dmg,
+            })
+            target.take_damage(dmg)
+            self.log_message(
+                f"{monster.monster_type} uses {skill['name']} on "
+                f"{target.character_type} for {dmg} dmg!"
+            )
+            if not target.is_alive():
+                self.log_message(f"{target.character_type} has fallen!")
+                if not any(p.is_alive() for p in self.players):
+                    self.game_over = True
+                    self.game_won = False
+
+        elif effect == "aoe_self":
+            # Damage all adjacent players
+            dmg = skill["damage"]
+            aoe_range = skill.get("range", 2)
+            hit_any = False
+            for player in self.players:
+                if not player.is_alive():
+                    continue
+                min_dist = float('inf')
+                for r, c in monster.get_occupied_tiles():
+                    d = abs(player.world_row - r) + abs(player.world_col - c)
+                    min_dist = min(min_dist, d)
+                if min_dist <= aoe_range:
+                    hit_any = True
+                    self.pending_animations.append({
+                        "type": "monster_claw",
+                        "world_row": player.world_row,
+                        "world_col": player.world_col,
+                        "damage": dmg,
+                    })
+                    player.take_damage(dmg)
+                    self.log_message(
+                        f"{skill['name']} hits {player.character_type} for {dmg}!"
+                    )
+                    if not player.is_alive():
+                        self.log_message(f"{player.character_type} has fallen!")
+            if hit_any:
+                self.log_message(f"{monster.monster_type} uses {skill['name']}!")
+            if not any(p.is_alive() for p in self.players):
+                self.game_over = True
+                self.game_won = False
+
+        elif effect == "summon":
+            # Spawn a minion near the boss
+            summon_type = skill.get("summon_type", "Skeleton")
+            placed = False
+            for r, c in monster.get_adjacent_tiles():
+                if (self.world.is_walkable(r, c) and
+                        not self.world.get_monster_at(r, c) and
+                        not any(p.world_row == r and p.world_col == c
+                                for p in self.players if p.is_alive())):
+                    minion = MonsterClass(summon_type, r, c, elite=True)
+                    self.world.monsters.append(minion)
+                    self.log_message(
+                        f"{monster.monster_type} summons a {summon_type}!"
+                    )
+                    placed = True
+                    break
+            if not placed:
+                # Refund cooldown if couldn't summon
+                monster.skill_cooldowns[skill_index] = 0
 
     def _start_new_round(self):
         """Start a new round - back to player phase."""

@@ -212,7 +212,7 @@ class WorldMap:
             for local_r, local_c, monster_type in card.monsters:
                 world_r = world_card_r * CARD_ROWS + local_r
                 world_c = world_card_c * CARD_COLS + local_c
-                self.monsters.append(Monster(monster_type, world_r, world_c))
+                self.monsters.append(Monster(monster_type, world_r, world_c, elite=True))
 
         # Calculate door world position
         door_world_r = (origin_r + door_card_gr) * CARD_ROWS + door_local_r

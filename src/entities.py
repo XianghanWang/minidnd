@@ -166,7 +166,7 @@ class Monster:
     STATE_CHASING = "chasing"
     STATE_RETURNING = "returning"
 
-    def __init__(self, monster_type, world_row, world_col):
+    def __init__(self, monster_type, world_row, world_col, elite=False):
         self.monster_type = monster_type
         stats = MONSTERS[monster_type]
         self.attack = stats["attack"]
@@ -176,16 +176,32 @@ class Monster:
         self.color = stats["color"]
         self.territory_range = stats.get("territory", 4)
         self.size = stats.get("size", 1)  # 1=1x1, 2=2x2
+        self.attack_range = stats.get("attack_range", 1)
         self.world_row = world_row
         self.world_col = world_col
         self.home_row = world_row
         self.home_col = world_col
-        self.state = Monster.STATE_SLEEPING
         self.has_acted = False
         self.action_points = stats.get("action_points", 1)
         self.max_action_points = self.action_points
         self.damage_flash = 0
         self.stun_turns = 0
+        self.elite = elite
+
+        # Boss room monsters: always aggressive, boosted stats
+        if elite:
+            self.state = Monster.STATE_CHASING
+            self.attack = int(self.attack * 1.5)
+            self.health = int(self.health * 1.5)
+            self.max_health = self.health
+            self.max_action_points = max(self.max_action_points, 2)
+            self.action_points = self.max_action_points
+        else:
+            self.state = Monster.STATE_SLEEPING
+
+        # Boss skills
+        self.skills = SKILLS.get(monster_type, [])
+        self.skill_cooldowns = [0] * len(self.skills)
 
     def occupies_tile(self, row, col):
         """Check if this monster occupies the given tile."""
@@ -237,6 +253,10 @@ class Monster:
         """Reset action state for new turn."""
         self.has_acted = False
         self.action_points = self.max_action_points
+        # Reduce skill cooldowns
+        for i in range(len(self.skill_cooldowns)):
+            if self.skill_cooldowns[i] > 0:
+                self.skill_cooldowns[i] -= 1
 
     def wake_up(self):
         """Wake the monster (e.g. when hit or player enters territory)."""

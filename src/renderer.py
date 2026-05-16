@@ -13,7 +13,7 @@ from constants import (
     STRINGS, HUD_PANEL_HEIGHT, COLOR_PARCHMENT, COLOR_PARCHMENT_DARK,
     COLOR_UI_BUTTON, COLOR_UI_BUTTON_HOVER,
     COLOR_TABLE, COLOR_TABLE_DARK, COLOR_TABLE_LIGHT,
-    COLOR_CARD_EDGE, COLOR_CARD_SHADOW,
+    COLOR_CARD_EDGE, COLOR_CARD_SHADOW, COLOR_CARD_FILL,
 )
 
 
@@ -69,235 +69,112 @@ class Renderer:
         self._torch_glow_surf = self._generate_torch_glow()
 
     def _generate_table_texture(self):
-        """Pre-render a wood grain table surface."""
+        """Pre-render a near-black table surface (Micro Dungeon style)."""
         surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         surf.fill(COLOR_TABLE)
-        rng = random.Random(42)  # Deterministic seed
-        # Horizontal grain lines
-        for y in range(0, SCREEN_HEIGHT, 2):
-            intensity = rng.randint(-8, 8)
-            r = max(0, min(255, COLOR_TABLE[0] + intensity))
-            g = max(0, min(255, COLOR_TABLE[1] + intensity))
-            b = max(0, min(255, COLOR_TABLE[2] + intensity))
-            pygame.draw.line(surf, (r, g, b), (0, y), (SCREEN_WIDTH, y))
-        # Darker grain streaks
-        for _ in range(20):
-            y = rng.randint(0, SCREEN_HEIGHT)
-            thickness = rng.randint(1, 3)
-            # Slightly wavy line
-            points = []
-            for x in range(0, SCREEN_WIDTH + 20, 20):
-                py = y + rng.randint(-2, 2)
-                points.append((x, py))
-            if len(points) >= 2:
-                pygame.draw.lines(surf, COLOR_TABLE_DARK, False, points, thickness)
-        # Lighter grain highlights
-        for _ in range(10):
-            y = rng.randint(0, SCREEN_HEIGHT)
-            points = []
-            for x in range(0, SCREEN_WIDTH + 30, 30):
-                py = y + rng.randint(-1, 1)
-                points.append((x, py))
-            if len(points) >= 2:
-                pygame.draw.lines(surf, COLOR_TABLE_LIGHT, False, points, 1)
-        # Subtle knot spots
-        for _ in range(5):
-            kx = rng.randint(50, SCREEN_WIDTH - 50)
-            ky = rng.randint(50, SCREEN_HEIGHT - 50)
-            kr = rng.randint(8, 18)
-            pygame.draw.circle(surf, COLOR_TABLE_DARK, (kx, ky), kr, 2)
-            pygame.draw.circle(surf, COLOR_TABLE_DARK, (kx, ky), kr // 2, 1)
+        rng = random.Random(42)
+        # Subtle noise for texture (very dark, nearly invisible)
+        for _ in range(200):
+            x = rng.randint(0, SCREEN_WIDTH - 1)
+            y = rng.randint(0, SCREEN_HEIGHT - 1)
+            v = rng.randint(18, 28)
+            pygame.draw.circle(surf, (v, v - 2, v - 4), (x, y), rng.randint(2, 8))
         return surf
 
     def _generate_tile_cache(self):
-        """Pre-render tile texture variants for rich visuals."""
+        """Pre-render clean board game card style tile textures."""
         TS = TILE_SIZE
         cache = {"floor": [], "wall": [], "door": None, "door_locked": None, "chest": None}
         rng = random.Random(12345)
 
-        # --- Stone floor variants (6) ---
-        for v in range(6):
-            s = pygame.Surface((TS, TS))
-            # Base color with slight variation
-            base_r, base_g, base_b = COLOR_ROAD
-            br = base_r + rng.randint(-6, 6)
-            bg = base_g + rng.randint(-6, 6)
-            bb = base_b + rng.randint(-6, 6)
-            s.fill((br, bg, bb))
-            # Stone slab grid (2x2 or 2x3 pattern)
-            slab_h = TS // 2 + rng.randint(-2, 2)
-            # Horizontal mortar line
-            mortar = (max(0, br - 15), max(0, bg - 15), max(0, bb - 15))
-            mortar_hi = (min(255, br + 8), min(255, bg + 8), min(255, bb + 8))
-            pygame.draw.line(s, mortar, (0, slab_h), (TS, slab_h), 1)
-            pygame.draw.line(s, mortar_hi, (0, slab_h + 1), (TS, slab_h + 1), 1)
-            # Vertical mortar lines (staggered)
-            off1 = TS // 3 + rng.randint(-3, 3)
-            off2 = 2 * TS // 3 + rng.randint(-3, 3)
-            pygame.draw.line(s, mortar, (off1, 0), (off1, slab_h), 1)
-            pygame.draw.line(s, mortar, (off2, slab_h), (off2, TS), 1)
-            # Subtle surface noise (sparse pixels, not every pixel)
-            for _ in range(25):
-                px = rng.randint(0, TS - 1)
-                py = rng.randint(0, TS - 1)
-                noise = rng.randint(-10, 10)
-                c = (max(0, min(255, br + noise)),
-                     max(0, min(255, bg + noise)),
-                     max(0, min(255, bb + noise)))
-                s.set_at((px, py), c)
-            # Cracks (1-2 per variant)
-            for _ in range(rng.randint(1, 2)):
-                cx = rng.randint(6, TS - 6)
-                cy = rng.randint(6, TS - 6)
-                crack_color = (max(0, br - 20), max(0, bg - 20), max(0, bb - 20))
-                length = rng.randint(8, 18)
-                for ci in range(length):
-                    dx = rng.choice([-1, 0, 1])
-                    dy = rng.choice([0, 1])
-                    cx = max(0, min(TS - 1, cx + dx))
-                    cy = max(0, min(TS - 1, cy + dy))
-                    s.set_at((cx, cy), crack_color)
-            # Worn spot (lighter circle)
-            if v % 3 == 0:
-                wx = rng.randint(10, TS - 10)
-                wy = rng.randint(10, TS - 10)
-                worn = pygame.Surface((12, 12), pygame.SRCALPHA)
-                pygame.draw.circle(worn, (min(255, br + 12), min(255, bg + 12),
-                                          min(255, bb + 12), 40), (6, 6), 6)
-                s.blit(worn, (wx - 6, wy - 6))
-            # Edge highlight (top/left = slightly lighter for depth)
-            pygame.draw.line(s, mortar_hi, (0, 0), (TS - 1, 0), 1)
-            pygame.draw.line(s, mortar_hi, (0, 0), (0, TS - 1), 1)
-            cache["floor"].append(s)
-
-        # --- Brick wall variants (4) ---
+        # --- Clean stone floor variants (4) ---
         for v in range(4):
             s = pygame.Surface((TS, TS))
+            base_r, base_g, base_b = COLOR_ROAD
+            br = base_r + rng.randint(-4, 4)
+            bg = base_g + rng.randint(-4, 4)
+            bb = base_b + rng.randint(-4, 4)
+            s.fill((br, bg, bb))
+            # Clean slab pattern
+            mortar = (max(0, br - 20), max(0, bg - 20), max(0, bb - 20))
+            slab_h = TS // 2
+            pygame.draw.line(s, mortar, (0, slab_h), (TS, slab_h), 1)
+            off = TS // 3 if v % 2 == 0 else 2 * TS // 3
+            pygame.draw.line(s, mortar, (off, 0), (off, slab_h), 1)
+            pygame.draw.line(s, mortar, (TS - off, slab_h), (TS - off, TS), 1)
+            # Subtle edge highlight
+            hi = (min(255, br + 10), min(255, bg + 10), min(255, bb + 10))
+            pygame.draw.line(s, hi, (0, 0), (TS - 1, 0), 1)
+            pygame.draw.line(s, hi, (0, 0), (0, TS - 1), 1)
+            cache["floor"].append(s)
+
+        # --- Clean wall variants (3) ---
+        for v in range(3):
+            s = pygame.Surface((TS, TS))
             wb_r, wb_g, wb_b = COLOR_WALL
-            s.fill((wb_r + rng.randint(-4, 4), wb_g + rng.randint(-4, 4),
-                    wb_b + rng.randint(-4, 4)))
-            brick_h = 10
-            mortar_c = (max(0, wb_r - 10), max(0, wb_g - 10), max(0, wb_b - 10))
+            s.fill((wb_r + rng.randint(-3, 3), wb_g + rng.randint(-3, 3),
+                    wb_b + rng.randint(-3, 3)))
+            # Simple brick pattern
+            brick_h = 12
+            mortar_c = (max(0, wb_r - 12), max(0, wb_g - 12), max(0, wb_b - 12))
             for by in range(0, TS, brick_h):
-                # Mortar line
                 pygame.draw.line(s, mortar_c, (0, by), (TS, by), 1)
-                # Individual bricks with color variation
                 stagger = (TS // 3) if (by // brick_h) % 2 == 0 else (2 * TS // 3)
-                # Brick tops (highlight)
-                hi = (min(255, wb_r + 12), min(255, wb_g + 12), min(255, wb_b + 12))
-                pygame.draw.line(s, hi, (0, by + 1), (TS, by + 1), 1)
-                # Vertical mortar
                 pygame.draw.line(s, mortar_c, (stagger, by), (stagger, by + brick_h), 1)
-                # Per-brick color variation
-                for bx_start in [0, stagger]:
-                    bx_end = stagger if bx_start == 0 else TS
-                    bw = bx_end - bx_start
-                    if bw > 4:
-                        br_v = rng.randint(-6, 6)
-                        brick_surf = pygame.Surface((bw - 2, brick_h - 2), pygame.SRCALPHA)
-                        brick_surf.fill((max(0, min(255, wb_r + br_v)),
-                                         max(0, min(255, wb_g + br_v)),
-                                         max(0, min(255, wb_b + br_v)), 60))
-                        s.blit(brick_surf, (bx_start + 1, by + 1))
-            # Moss/lichen spots
-            for _ in range(rng.randint(0, 3)):
-                mx = rng.randint(4, TS - 4)
-                my = rng.randint(4, TS - 4)
-                moss_r = rng.randint(2, 4)
-                pygame.draw.circle(s, (35, 50, 30), (mx, my), moss_r)
-                pygame.draw.circle(s, (45, 60, 35), (mx, my), moss_r - 1)
-            # Chipped brick (dark indent)
-            if v % 2 == 0:
-                chip_x = rng.randint(8, TS - 8)
-                chip_y = rng.randint(4, TS - 4)
-                pygame.draw.rect(s, mortar_c,
-                                 pygame.Rect(chip_x, chip_y, rng.randint(3, 6),
-                                             rng.randint(2, 4)))
-            # Dark border
-            pygame.draw.rect(s, (max(0, wb_r - 15), max(0, wb_g - 15),
-                                  max(0, wb_b - 15)),
+            # Dark border for depth
+            pygame.draw.rect(s, (max(0, wb_r - 18), max(0, wb_g - 18),
+                                  max(0, wb_b - 18)),
                              pygame.Rect(0, 0, TS, TS), 2)
             cache["wall"].append(s)
 
-        # --- Door texture ---
+        # --- Clean door tile ---
         s = pygame.Surface((TS, TS))
         s.fill(COLOR_ROAD)
-        dr = pygame.Rect(6, 3, TS - 12, TS - 6)
-        # Wood base
+        dr = pygame.Rect(8, 4, TS - 16, TS - 8)
         s.fill(COLOR_DOOR, dr)
-        # Wood grain
-        for gy in range(dr.top, dr.bottom, 3):
-            grain_c = (max(0, COLOR_DOOR[0] + rng.randint(-12, 8)),
-                       max(0, COLOR_DOOR[1] + rng.randint(-12, 8)),
-                       max(0, COLOR_DOOR[2] + rng.randint(-8, 4)))
-            pygame.draw.line(s, grain_c, (dr.left + 1, gy), (dr.right - 1, gy), 1)
-        # Plank seams
-        for px in [TS // 3, 2 * TS // 3]:
-            pygame.draw.line(s, (max(0, COLOR_DOOR[0] - 30), max(0, COLOR_DOOR[1] - 30),
+        # Plank lines
+        for px in [dr.left + dr.width // 3, dr.left + 2 * dr.width // 3]:
+            pygame.draw.line(s, (max(0, COLOR_DOOR[0] - 25), max(0, COLOR_DOOR[1] - 25),
                                   max(0, COLOR_DOOR[2] - 20)),
-                             (px, 3), (px, TS - 3), 2)
+                             (px, dr.top + 1), (px, dr.bottom - 1), 1)
         # Iron bands
-        for band_y in [TS // 4, 3 * TS // 4]:
-            pygame.draw.rect(s, (80, 75, 70), pygame.Rect(dr.left, band_y - 2, dr.width, 4))
-            pygame.draw.rect(s, (50, 45, 40), pygame.Rect(dr.left, band_y - 2, dr.width, 4), 1)
-            # Rivets
-            for rx in [dr.left + 6, dr.right - 6]:
-                pygame.draw.circle(s, (100, 95, 85), (rx, band_y), 2)
-                pygame.draw.circle(s, (60, 55, 50), (rx, band_y), 2, 1)
+        for band_y in [dr.top + dr.height // 4, dr.top + 3 * dr.height // 4]:
+            pygame.draw.rect(s, (100, 95, 85), pygame.Rect(dr.left, band_y - 2, dr.width, 4))
+            pygame.draw.rect(s, (60, 55, 50), pygame.Rect(dr.left, band_y - 2, dr.width, 4), 1)
         # Handle
-        pygame.draw.circle(s, (90, 85, 75), (TS - 14, TS // 2), 4)
-        pygame.draw.circle(s, (50, 45, 40), (TS - 14, TS // 2), 4, 1)
-        pygame.draw.circle(s, (110, 105, 95), (TS - 14, TS // 2), 2)
-        # Border
+        pygame.draw.circle(s, (110, 105, 90), (dr.right - 8, TS // 2), 3)
+        pygame.draw.circle(s, COLOR_INK, (dr.right - 8, TS // 2), 3, 1)
         pygame.draw.rect(s, COLOR_INK, dr, 2)
         cache["door"] = s
 
-        # --- Locked door texture ---
+        # --- Locked door ---
         s2 = s.copy()
-        lock_cx = TS // 2
-        lock_cy = TS // 2
-        # Lock body
-        pygame.draw.rect(s2, (70, 65, 55), pygame.Rect(lock_cx - 6, lock_cy - 1, 12, 10))
-        pygame.draw.rect(s2, (40, 35, 30), pygame.Rect(lock_cx - 6, lock_cy - 1, 12, 10), 1)
-        # Lock shackle
-        pygame.draw.arc(s2, (70, 65, 55), pygame.Rect(lock_cx - 4, lock_cy - 8, 8, 10),
+        lock_cx, lock_cy = TS // 2, TS // 2
+        pygame.draw.rect(s2, (80, 75, 65), pygame.Rect(lock_cx - 5, lock_cy, 10, 8))
+        pygame.draw.rect(s2, COLOR_INK, pygame.Rect(lock_cx - 5, lock_cy, 10, 8), 1)
+        pygame.draw.arc(s2, (80, 75, 65), pygame.Rect(lock_cx - 4, lock_cy - 6, 8, 10),
                         0, 3.14, 2)
-        # Keyhole
-        pygame.draw.circle(s2, (30, 25, 20), (lock_cx, lock_cy + 2), 2)
-        pygame.draw.line(s2, (30, 25, 20), (lock_cx, lock_cy + 2), (lock_cx, lock_cy + 5), 1)
+        pygame.draw.circle(s2, COLOR_INK, (lock_cx, lock_cy + 3), 1)
         cache["door_locked"] = s2
 
-        # --- Chest texture ---
+        # --- Clean chest tile ---
         s = pygame.Surface((TS, TS))
         s.fill(COLOR_ROAD)
-        # Shadow under chest
-        shadow_surf = pygame.Surface((32, 8), pygame.SRCALPHA)
-        pygame.draw.ellipse(shadow_surf, (0, 0, 0, 40), shadow_surf.get_rect())
-        s.blit(shadow_surf, (TS // 2 - 16, TS // 2 + 12))
-        # Chest body
         cx, cy = TS // 2, TS // 2
-        chest_w, chest_h = 30, 22
-        body_rect = pygame.Rect(cx - chest_w // 2, cy - chest_h // 2 + 4, chest_w, chest_h)
-        # Wood body with grain
-        pygame.draw.rect(s, COLOR_CHEST, body_rect)
-        for gy in range(body_rect.top, body_rect.bottom, 3):
-            gc = (max(0, COLOR_CHEST[0] + rng.randint(-15, 10)),
-                  max(0, COLOR_CHEST[1] + rng.randint(-15, 10)),
-                  max(0, COLOR_CHEST[2] + rng.randint(-8, 4)))
-            pygame.draw.line(s, gc, (body_rect.left + 1, gy), (body_rect.right - 1, gy), 1)
-        # Metal bands
-        for band_y in [body_rect.top + 4, body_rect.bottom - 5]:
-            pygame.draw.line(s, (120, 110, 80), (body_rect.left, band_y),
-                             (body_rect.right, band_y), 2)
-        pygame.draw.rect(s, COLOR_INK, body_rect, 2)
-        # Lid
-        lid_rect = pygame.Rect(cx - chest_w // 2, cy - chest_h // 2 - 2, chest_w, 14)
-        pygame.draw.arc(s, COLOR_INK, lid_rect, 0, 3.14, 2)
-        # Clasp with gem
-        pygame.draw.rect(s, (120, 110, 80), pygame.Rect(cx - 4, cy - 2, 8, 8))
-        pygame.draw.rect(s, COLOR_INK, pygame.Rect(cx - 4, cy - 2, 8, 8), 1)
-        pygame.draw.circle(s, (180, 40, 40), (cx, cy + 2), 2)  # Ruby
-        pygame.draw.circle(s, (220, 80, 80), (cx, cy + 1), 1)  # Highlight
+        shadow = pygame.Surface((28, 6), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 35), shadow.get_rect())
+        s.blit(shadow, (cx - 14, cy + 10))
+        body = pygame.Rect(cx - 14, cy - 4, 28, 18)
+        pygame.draw.rect(s, COLOR_CHEST, body, border_radius=2)
+        pygame.draw.line(s, (160, 140, 60), (body.left, body.top + 5),
+                         (body.right, body.top + 5), 2)
+        pygame.draw.line(s, (160, 140, 60), (body.left, body.bottom - 5),
+                         (body.right, body.bottom - 5), 2)
+        pygame.draw.arc(s, COLOR_INK, pygame.Rect(cx - 14, cy - 14, 28, 16),
+                        0, 3.14, 2)
+        pygame.draw.rect(s, (160, 140, 60), pygame.Rect(cx - 3, cy - 1, 6, 6))
+        pygame.draw.circle(s, (200, 50, 50), (cx, cy + 2), 2)
+        pygame.draw.rect(s, COLOR_INK, body, 2, border_radius=2)
         cache["chest"] = s
 
         return cache
@@ -523,94 +400,92 @@ class Renderer:
                         world.get_tile(row, col + 1) != TILE_WALL):
                     self.screen.blit(self._wall_shadow_cache["tr"], (sx, sy))
 
-        # Draw card borders (weathered board game card look)
+        # Draw card borders (Micro Dungeon PnP style - rough torn edges on black table)
         for (card_row, card_col) in world.cards:
             sx, sy = self.camera.world_to_screen(
                 card_row * CARD_ROWS, card_col * CARD_COLS)
             card_w = CARD_COLS * TILE_SIZE
             card_h = CARD_ROWS * TILE_SIZE
-            # Drop shadow (offset down-right)
-            shadow_surf = pygame.Surface((card_w + 8, card_h + 8), pygame.SRCALPHA)
-            pygame.draw.rect(shadow_surf, (20, 15, 10, 100),
-                             pygame.Rect(4, 4, card_w, card_h),
-                             border_radius=4)
-            self.screen.blit(shadow_surf, (sx - 2, sy - 2))
-            # Cream card edge (border only)
-            edge_rect = pygame.Rect(sx - 3, sy - 3, card_w + 6, card_h + 6)
-            pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect, 3,
-                             border_radius=5)
-            # Inner ink border (thicker, worn look)
-            border_rect = pygame.Rect(sx, sy, card_w, card_h)
-            pygame.draw.rect(self.screen, COLOR_INK, border_rect, 2)
 
-            # Weathering effects (deterministic per card)
+            # Deep drop shadow on black table
+            shadow_surf = pygame.Surface((card_w + 12, card_h + 12), pygame.SRCALPHA)
+            pygame.draw.rect(shadow_surf, (0, 0, 0, 140),
+                             pygame.Rect(6, 6, card_w, card_h),
+                             border_radius=3)
+            self.screen.blit(shadow_surf, (sx - 3, sy - 3))
+
+            # Rough/torn card edge (irregular border using small line segments)
             seed = card_row * 97 + card_col * 31
             wrng = random.Random(seed)
 
-            # Worn edge scuffs (short lines along border edges)
-            for _ in range(8):
+            # Draw torn edge by creating a polygon with jittered vertices
+            edge_points = []
+            jitter = 3  # max pixel deviation for torn look
+
+            # Top edge (left to right)
+            for i in range(0, card_w + 1, 4):
+                j = wrng.randint(-jitter, jitter) if 4 < i < card_w - 4 else 0
+                edge_points.append((sx + i, sy + j))
+            # Right edge (top to bottom)
+            for i in range(0, card_h + 1, 4):
+                j = wrng.randint(-jitter, jitter) if 4 < i < card_h - 4 else 0
+                edge_points.append((sx + card_w + j, sy + i))
+            # Bottom edge (right to left)
+            for i in range(card_w, -1, -4):
+                j = wrng.randint(-jitter, jitter) if 4 < i < card_w - 4 else 0
+                edge_points.append((sx + i, sy + card_h + j))
+            # Left edge (bottom to top)
+            for i in range(card_h, -1, -4):
+                j = wrng.randint(-jitter, jitter) if 4 < i < card_h - 4 else 0
+                edge_points.append((sx + j, sy + i))
+
+            # Draw the torn edge as connected lines (off-white on black table)
+            if len(edge_points) > 1:
+                pygame.draw.lines(self.screen, COLOR_CARD_EDGE, True,
+                                  edge_points, 2)
+
+            # Bold ink inner border
+            border_rect = pygame.Rect(sx + 1, sy + 1, card_w - 2, card_h - 2)
+            pygame.draw.rect(self.screen, COLOR_INK, border_rect, 2)
+
+            # Fuzzy edge fibers (tiny lines radiating outward from edges)
+            for _ in range(12):
                 side = wrng.randint(0, 3)
                 if side == 0:  # top
-                    wx = sx + wrng.randint(8, card_w - 8)
-                    wy = sy - 1
-                    pygame.draw.line(self.screen, (160, 145, 120),
-                                     (wx, wy), (wx + wrng.randint(3, 10), wy), 1)
+                    fx = sx + wrng.randint(8, card_w - 8)
+                    fy = sy
+                    pygame.draw.line(self.screen, (180, 175, 165),
+                                     (fx, fy), (fx + wrng.randint(-2, 2),
+                                                fy - wrng.randint(2, 5)), 1)
                 elif side == 1:  # bottom
-                    wx = sx + wrng.randint(8, card_w - 8)
-                    wy = sy + card_h
-                    pygame.draw.line(self.screen, (160, 145, 120),
-                                     (wx, wy), (wx + wrng.randint(3, 10), wy), 1)
+                    fx = sx + wrng.randint(8, card_w - 8)
+                    fy = sy + card_h
+                    pygame.draw.line(self.screen, (180, 175, 165),
+                                     (fx, fy), (fx + wrng.randint(-2, 2),
+                                                fy + wrng.randint(2, 5)), 1)
                 elif side == 2:  # left
-                    wx = sx - 1
-                    wy = sy + wrng.randint(8, card_h - 8)
-                    pygame.draw.line(self.screen, (160, 145, 120),
-                                     (wx, wy), (wx, wy + wrng.randint(3, 8)), 1)
+                    fx = sx
+                    fy = sy + wrng.randint(8, card_h - 8)
+                    pygame.draw.line(self.screen, (180, 175, 165),
+                                     (fx, fy), (fx - wrng.randint(2, 5),
+                                                fy + wrng.randint(-2, 2)), 1)
                 else:  # right
-                    wx = sx + card_w
-                    wy = sy + wrng.randint(8, card_h - 8)
-                    pygame.draw.line(self.screen, (160, 145, 120),
-                                     (wx, wy), (wx, wy + wrng.randint(3, 8)), 1)
+                    fx = sx + card_w
+                    fy = sy + wrng.randint(8, card_h - 8)
+                    pygame.draw.line(self.screen, (180, 175, 165),
+                                     (fx, fy), (fx + wrng.randint(2, 5),
+                                                fy + wrng.randint(-2, 2)), 1)
 
-            # Dirt/coffee stain spots (semi-transparent dark circles)
-            stain_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
-            for _ in range(wrng.randint(3, 6)):
-                stx = wrng.randint(10, card_w - 10)
-                sty = wrng.randint(10, card_h - 10)
-                str_r = wrng.randint(6, 18)
-                alpha = wrng.randint(12, 30)
-                stain_c = wrng.choice([
-                    (80, 60, 40, alpha),      # brown stain
-                    (50, 45, 35, alpha),       # dark smudge
-                    (100, 80, 50, alpha - 5),  # coffee ring
-                ])
-                pygame.draw.circle(stain_surf, stain_c, (stx, sty), str_r)
-                # Inner lighter ring for coffee stain effect
-                if str_r > 8:
-                    pygame.draw.circle(stain_surf, (stain_c[0], stain_c[1],
-                                                     stain_c[2], alpha // 3),
-                                       (stx, sty), str_r - 3)
-            self.screen.blit(stain_surf, (sx, sy))
+            # Light aging marks (subtle, not dirty — clean PnP style)
+            aging_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            for _ in range(wrng.randint(1, 3)):
+                ax = wrng.randint(10, card_w - 10)
+                ay = wrng.randint(10, card_h - 10)
+                ar = wrng.randint(8, 15)
+                pygame.draw.circle(aging_surf, (180, 170, 150, 15), (ax, ay), ar)
+            self.screen.blit(aging_surf, (sx, sy))
 
-            # Scratch marks (thin dark lines across the card)
-            for _ in range(wrng.randint(2, 4)):
-                scx1 = sx + wrng.randint(5, card_w - 5)
-                scy1 = sy + wrng.randint(5, card_h - 5)
-                scx2 = scx1 + wrng.randint(-20, 20)
-                scy2 = scy1 + wrng.randint(-15, 15)
-                scratch_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
-                pygame.draw.line(scratch_surf, (60, 50, 40, 25),
-                                 (scx1 - sx, scy1 - sy),
-                                 (scx2 - sx, scy2 - sy), 1)
-                self.screen.blit(scratch_surf, (sx, sy))
-
-            # Corner wear (slightly rounded darker corners)
-            corner_surf = pygame.Surface((12, 12), pygame.SRCALPHA)
-            pygame.draw.circle(corner_surf, (100, 85, 65, 35), (0, 0), 10)
-            for cx, cy in [(sx, sy), (sx + card_w - 12, sy),
-                           (sx, sy + card_h - 12), (sx + card_w - 12, sy + card_h - 12)]:
-                self.screen.blit(corner_surf, (cx, cy))
-
-            # Corner decoration dots
+            # Corner ink dots (decorative)
             for cr, cc in [(sx + 4, sy + 4), (sx + card_w - 5, sy + 4),
                            (sx + 4, sy + card_h - 5), (sx + card_w - 5, sy + card_h - 5)]:
                 pygame.draw.circle(self.screen, COLOR_INK, (cr, cc), 2)
@@ -1103,7 +978,7 @@ class Renderer:
         surf.blit(letter, (lcx - letter.get_width() // 2, lcy + 6))
 
     def _draw_players(self, players, game_logic):
-        """Draw all players as colored pawns with damage flash and turn indicator."""
+        """Draw all players as circular tokens with class icons."""
         current_player = game_logic.get_current_player()
         for player in players:
             if not player.is_alive():
@@ -1111,40 +986,83 @@ class Renderer:
             sx, sy = self.camera.world_to_screen(player.world_row, player.world_col)
             center_x = sx + TILE_SIZE // 2
             center_y = sy + TILE_SIZE // 2
+            token_r = 16
+            icon_color = (240, 235, 220)
 
-            # Board game token shadow
-            self._draw_token_shadow(center_x, center_y, 12)
+            # Dark ellipse shadow underneath
+            shadow_surf = pygame.Surface((token_r * 2 + 4, 8), pygame.SRCALPHA)
+            pygame.draw.ellipse(shadow_surf, (0, 0, 0, 60), shadow_surf.get_rect())
+            self.screen.blit(shadow_surf, (center_x - token_r - 2, center_y + token_r - 4))
 
             # Current-turn golden pulsing ring
             if (player is current_player and not game_logic.is_monster_phase):
                 pulse_alpha = int(150 + 50 * math.sin(self.frame_count * 0.08))
                 ring_surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
                 pygame.draw.circle(ring_surf, (255, 200, 80, pulse_alpha),
-                                   (TILE_SIZE // 2, TILE_SIZE // 2), 22, 3)
+                                   (TILE_SIZE // 2, TILE_SIZE // 2), token_r + 5, 3)
                 self.screen.blit(ring_surf, (sx, sy))
 
-            # Pawn shape: circle head + triangular body
-            body_points = [
-                (center_x, center_y - 10),
-                (center_x - 10, center_y + 12),
-                (center_x + 10, center_y + 12),
-            ]
-            pygame.draw.polygon(self.screen, player.color, body_points)
-            pygame.draw.polygon(self.screen, COLOR_INK, body_points, 2)
-            # Head
-            pygame.draw.circle(self.screen, player.color, (center_x, center_y - 12), 7)
-            pygame.draw.circle(self.screen, COLOR_INK, (center_x, center_y - 12), 7, 2)
-            # Base
-            pygame.draw.ellipse(self.screen, player.color,
-                                pygame.Rect(center_x - 11, center_y + 10, 22, 8))
-            pygame.draw.ellipse(self.screen, COLOR_INK,
-                                pygame.Rect(center_x - 11, center_y + 10, 22, 8), 2)
+            # Filled circle token with gradient (darker bottom edge)
+            pr, pg, pb = player.color
+            pygame.draw.circle(self.screen, player.color, (center_x, center_y), token_r)
+            # Bottom-half darker arc for depth
+            dark_surf = pygame.Surface((token_r * 2, token_r * 2), pygame.SRCALPHA)
+            dark_color = (max(0, pr - 40), max(0, pg - 40), max(0, pb - 40), 80)
+            pygame.draw.circle(dark_surf, dark_color, (token_r, token_r), token_r)
+            # Mask top half transparent
+            pygame.draw.rect(dark_surf, (0, 0, 0, 0),
+                             pygame.Rect(0, 0, token_r * 2, token_r))
+            self.screen.blit(dark_surf, (center_x - token_r, center_y - token_r))
 
-            # Player number on body
+            # Class icon drawn in cream/white
+            ctype = getattr(player, 'character_type', '')
+            if ctype == "Warrior":
+                # Sword icon: two crossed lines
+                pygame.draw.line(self.screen, icon_color,
+                                 (center_x - 7, center_y - 7),
+                                 (center_x + 7, center_y + 7), 2)
+                pygame.draw.line(self.screen, icon_color,
+                                 (center_x + 7, center_y - 7),
+                                 (center_x - 7, center_y + 7), 2)
+                # Small crossguard on first line
+                pygame.draw.line(self.screen, icon_color,
+                                 (center_x - 2, center_y + 2),
+                                 (center_x + 2, center_y - 2), 2)
+            elif ctype == "Wizard":
+                # 5-pointed star
+                for i in range(5):
+                    angle = math.radians(i * 72 - 90)
+                    x1 = center_x + int(9 * math.cos(angle))
+                    y1 = center_y + int(9 * math.sin(angle))
+                    angle2 = math.radians((i + 2) * 72 - 90)
+                    x2 = center_x + int(9 * math.cos(angle2))
+                    y2 = center_y + int(9 * math.sin(angle2))
+                    pygame.draw.line(self.screen, icon_color, (x1, y1), (x2, y2), 2)
+            elif ctype == "Hunter":
+                # Bow icon: arc + vertical line (arrow)
+                bow_rect = pygame.Rect(center_x - 8, center_y - 8, 12, 16)
+                pygame.draw.arc(self.screen, icon_color, bow_rect,
+                                -math.pi / 2, math.pi / 2, 2)
+                # Arrow line
+                pygame.draw.line(self.screen, icon_color,
+                                 (center_x - 2, center_y),
+                                 (center_x + 8, center_y), 2)
+                # Arrowhead
+                pygame.draw.line(self.screen, icon_color,
+                                 (center_x + 8, center_y),
+                                 (center_x + 5, center_y - 3), 2)
+                pygame.draw.line(self.screen, icon_color,
+                                 (center_x + 8, center_y),
+                                 (center_x + 5, center_y + 3), 2)
+
+            # 2px ink outline around the circle
+            pygame.draw.circle(self.screen, COLOR_INK, (center_x, center_y), token_r, 2)
+
+            # Player number text below token
             num_text = self.font_small.render(
                 str(player.player_id + 1), True, (255, 255, 255))
             self.screen.blit(num_text, (center_x - num_text.get_width() // 2,
-                                        center_y - 2))
+                                        center_y + token_r + 1))
 
             # Health bar above (gradient fill with depth)
             bar_w = TILE_SIZE - 10
