@@ -15,6 +15,11 @@ CARD_ROWS = 5
 
 # Colors (hand-drawn ink-on-parchment style - like a pen sketch)
 COLOR_BG = (35, 30, 28)              # Dark dungeon void (unexplored)
+COLOR_TABLE = (90, 65, 40)           # Wood table base
+COLOR_TABLE_DARK = (70, 50, 30)      # Wood grain line
+COLOR_TABLE_LIGHT = (110, 80, 50)    # Wood grain highlight
+COLOR_CARD_EDGE = (220, 210, 190)    # Card border/edge cream
+COLOR_CARD_SHADOW = (30, 25, 20, 120)  # Card drop shadow
 COLOR_ROAD = (70, 65, 55)            # Dark stone floor
 COLOR_WALL = (40, 35, 30)            # Very dark dungeon wall
 COLOR_WALL_HATCH = (55, 50, 42)      # Subtle brick pattern on walls
@@ -35,6 +40,8 @@ COLOR_HEALTH_BAR = (180, 40, 40)      # Red health
 COLOR_HEALTH_BG = (80, 60, 60)        # Health bg
 COLOR_AP_BAR = (50, 160, 50)          # Green AP
 COLOR_GRID_LINE = (60, 55, 45)       # Subtle grid on stone
+COLOR_PARCHMENT = (235, 225, 200)    # Light parchment
+COLOR_PARCHMENT_DARK = (210, 195, 170)  # Darker parchment
 
 # Character definitions
 CHARACTERS = {
@@ -254,8 +261,6 @@ LOOT_TABLE = {
 
 # UI layout
 HUD_PANEL_HEIGHT = 140
-COLOR_PARCHMENT = (235, 225, 200)
-COLOR_PARCHMENT_DARK = (215, 200, 175)
 
 # Game rules
 BOSS_CARD_THRESHOLD = 8  # Boss card appears after this many cards drawn

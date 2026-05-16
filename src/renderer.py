@@ -11,7 +11,9 @@ from constants import (
     COLOR_HEALTH_BAR, COLOR_HEALTH_BG, COLOR_AP_BAR, COLOR_BOSS,
     TILE_ROAD, TILE_WALL, TILE_DOOR, TILE_DOOR_LOCKED, TILE_CHEST,
     STRINGS, HUD_PANEL_HEIGHT, COLOR_PARCHMENT, COLOR_PARCHMENT_DARK,
-    COLOR_UI_BUTTON, COLOR_UI_BUTTON_HOVER
+    COLOR_UI_BUTTON, COLOR_UI_BUTTON_HOVER,
+    COLOR_TABLE, COLOR_TABLE_DARK, COLOR_TABLE_LIGHT,
+    COLOR_CARD_EDGE, COLOR_CARD_SHADOW,
 )
 
 
@@ -55,12 +57,89 @@ class Renderer:
         self.font_large = pygame.font.Font(None, 42)
         self.font_title = pygame.font.Font(None, 72)
         self.font_damage = pygame.font.Font(None, 52)
+        # Pre-render wood grain table texture
+        self._table_texture = self._generate_table_texture()
+
+    def _generate_table_texture(self):
+        """Pre-render a wood grain table surface."""
+        surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        surf.fill(COLOR_TABLE)
+        rng = random.Random(42)  # Deterministic seed
+        # Horizontal grain lines
+        for y in range(0, SCREEN_HEIGHT, 2):
+            intensity = rng.randint(-8, 8)
+            r = max(0, min(255, COLOR_TABLE[0] + intensity))
+            g = max(0, min(255, COLOR_TABLE[1] + intensity))
+            b = max(0, min(255, COLOR_TABLE[2] + intensity))
+            pygame.draw.line(surf, (r, g, b), (0, y), (SCREEN_WIDTH, y))
+        # Darker grain streaks
+        for _ in range(20):
+            y = rng.randint(0, SCREEN_HEIGHT)
+            thickness = rng.randint(1, 3)
+            # Slightly wavy line
+            points = []
+            for x in range(0, SCREEN_WIDTH + 20, 20):
+                py = y + rng.randint(-2, 2)
+                points.append((x, py))
+            if len(points) >= 2:
+                pygame.draw.lines(surf, COLOR_TABLE_DARK, False, points, thickness)
+        # Lighter grain highlights
+        for _ in range(10):
+            y = rng.randint(0, SCREEN_HEIGHT)
+            points = []
+            for x in range(0, SCREEN_WIDTH + 30, 30):
+                py = y + rng.randint(-1, 1)
+                points.append((x, py))
+            if len(points) >= 2:
+                pygame.draw.lines(surf, COLOR_TABLE_LIGHT, False, points, 1)
+        # Subtle knot spots
+        for _ in range(5):
+            kx = rng.randint(50, SCREEN_WIDTH - 50)
+            ky = rng.randint(50, SCREEN_HEIGHT - 50)
+            kr = rng.randint(8, 18)
+            pygame.draw.circle(surf, COLOR_TABLE_DARK, (kx, ky), kr, 2)
+            pygame.draw.circle(surf, COLOR_TABLE_DARK, (kx, ky), kr // 2, 1)
+        return surf
+
+    def _draw_table_background(self):
+        """Blit the pre-rendered wood grain table."""
+        self.screen.blit(self._table_texture, (0, 0))
+
+    def _draw_card_panel(self, rect, radius=8):
+        """Draw a card-like panel with cream edge and drop shadow."""
+        shadow_offset = 4
+        # Drop shadow
+        shadow_surf = pygame.Surface(
+            (rect.width + shadow_offset * 2, rect.height + shadow_offset * 2),
+            pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, (30, 25, 20, 100),
+                         pygame.Rect(shadow_offset, shadow_offset,
+                                     rect.width, rect.height),
+                         border_radius=radius)
+        self.screen.blit(shadow_surf, (rect.x - shadow_offset // 2,
+                                        rect.y - shadow_offset // 2))
+        # Card edge (cream border visible around content)
+        edge_rect = pygame.Rect(rect.x - 3, rect.y - 3,
+                                rect.width + 6, rect.height + 6)
+        pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect,
+                         border_radius=radius + 2)
+        # Card content area
+        pygame.draw.rect(self.screen, COLOR_PARCHMENT, rect,
+                         border_radius=radius)
+
+    def _draw_token_shadow(self, cx, cy, radius=12):
+        """Draw a board game token shadow (ellipse under piece)."""
+        shadow_surf = pygame.Surface((radius * 3, radius * 2), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow_surf, (20, 15, 10, 80),
+                            pygame.Rect(0, 0, radius * 3, radius * 2))
+        self.screen.blit(shadow_surf, (cx - radius * 3 // 2, cy + 6))
 
     def render_game(self, world, players, game_logic, highlights,
                     camera_offset=(0, 0)):
         """Render the full game view."""
         self.frame_count += 1
-        self.screen.fill(COLOR_BG)
+        # Wood grain table background instead of solid dark
+        self._draw_table_background()
 
         # Center camera on current player with offset
         current_player = game_logic.get_current_player()
@@ -113,6 +192,9 @@ class Renderer:
 
         # Draw active animations (on top of everything)
         self._draw_animations()
+
+        # Decorative board game frame around the play area
+        self._draw_game_frame()
 
     def _draw_tiles(self, world):
         """Draw visible dungeon tiles in hand-drawn ink style."""
@@ -233,13 +315,29 @@ class Renderer:
                 # Subtle grid line (pencil-weight)
                 pygame.draw.rect(self.screen, COLOR_GRID_LINE, rect, 1)
 
-        # Draw card borders (thick ink outline per card)
+        # Draw card borders (physical card look with shadow + cream edge)
         for (card_row, card_col) in world.cards:
             sx, sy = self.camera.world_to_screen(
                 card_row * CARD_ROWS, card_col * CARD_COLS)
-            border_rect = pygame.Rect(sx, sy,
-                                      CARD_COLS * TILE_SIZE, CARD_ROWS * TILE_SIZE)
-            pygame.draw.rect(self.screen, COLOR_INK, border_rect, 3)
+            card_w = CARD_COLS * TILE_SIZE
+            card_h = CARD_ROWS * TILE_SIZE
+            # Drop shadow (offset down-right)
+            shadow_surf = pygame.Surface((card_w + 8, card_h + 8), pygame.SRCALPHA)
+            pygame.draw.rect(shadow_surf, (20, 15, 10, 100),
+                             pygame.Rect(4, 4, card_w, card_h),
+                             border_radius=4)
+            self.screen.blit(shadow_surf, (sx - 2, sy - 2))
+            # Cream card edge (visible border around the card)
+            edge_rect = pygame.Rect(sx - 3, sy - 3, card_w + 6, card_h + 6)
+            pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect,
+                             border_radius=5)
+            # Inner ink border
+            border_rect = pygame.Rect(sx, sy, card_w, card_h)
+            pygame.draw.rect(self.screen, COLOR_INK, border_rect, 2)
+            # Corner decoration dots (like card corner marks)
+            for cr, cc in [(sx + 4, sy + 4), (sx + card_w - 5, sy + 4),
+                           (sx + 4, sy + card_h - 5), (sx + card_w - 5, sy + card_h - 5)]:
+                pygame.draw.circle(self.screen, COLOR_INK, (cr, cc), 2)
 
     def _draw_highlights(self, highlights):
         """Draw highlighted tiles with color coding by action type."""
@@ -313,6 +411,11 @@ class Renderer:
             else:
                 surf = self.screen
                 lcx, lcy = center_x, center_y
+
+            # Board game token shadow (only when drawing directly to screen)
+            if not is_sleeping and not is_returning:
+                shadow_r = radius + 4 if not is_multi else radius
+                self._draw_token_shadow(center_x, center_y, shadow_r)
 
             # Dispatch to per-type drawing method
             draw_fn = {
@@ -719,6 +822,9 @@ class Renderer:
             center_x = sx + TILE_SIZE // 2
             center_y = sy + TILE_SIZE // 2
 
+            # Board game token shadow
+            self._draw_token_shadow(center_x, center_y, 12)
+
             # Current-turn golden pulsing ring
             if (player is current_player and not game_logic.is_monster_phase):
                 pulse_alpha = int(150 + 50 * math.sin(self.frame_count * 0.08))
@@ -846,6 +952,27 @@ class Renderer:
             a = alpha * i // edge
             pygame.draw.line(s4, (180, 30, 30, a), (i, 0), (i, SCREEN_HEIGHT - HUD_PANEL_HEIGHT))
         self.screen.blit(s4, (SCREEN_WIDTH - edge, 0))
+
+    def _draw_game_frame(self):
+        """Draw a decorative board game frame around the play area."""
+        frame_w = 4
+        play_h = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
+        # Outer frame (dark wood)
+        pygame.draw.rect(self.screen, (50, 35, 22),
+                         pygame.Rect(0, 0, SCREEN_WIDTH, play_h), frame_w + 2)
+        # Inner frame (lighter wood)
+        pygame.draw.rect(self.screen, (80, 60, 38),
+                         pygame.Rect(frame_w, frame_w,
+                                     SCREEN_WIDTH - frame_w * 2,
+                                     play_h - frame_w * 2), 2)
+        # Corner ornaments (small circles)
+        ornament_r = 6
+        for x, y in [(ornament_r + 2, ornament_r + 2),
+                      (SCREEN_WIDTH - ornament_r - 2, ornament_r + 2),
+                      (ornament_r + 2, play_h - ornament_r - 2),
+                      (SCREEN_WIDTH - ornament_r - 2, play_h - ornament_r - 2)]:
+            pygame.draw.circle(self.screen, (80, 60, 38), (x, y), ornament_r, 2)
+            pygame.draw.circle(self.screen, (50, 35, 22), (x, y), 3)
 
     def _spawn_animation(self, anim_event):
         """Create an animation from a game event."""
@@ -1300,11 +1427,24 @@ class Renderer:
         self.screen.blit(icon_surf, (sx - 24, sy - 24))
 
     def _draw_hud(self, players, game_logic):
-        """Draw the medieval parchment-style HUD panel."""
+        """Draw the HUD panel styled as a board game card."""
         panel_y = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
         panel_rect = pygame.Rect(0, panel_y, SCREEN_WIDTH, HUD_PANEL_HEIGHT)
 
-        # Parchment background
+        # Card-style drop shadow at top
+        shadow_h = 6
+        shadow_surf = pygame.Surface((SCREEN_WIDTH, shadow_h), pygame.SRCALPHA)
+        for i in range(shadow_h):
+            a = 60 * (shadow_h - i) // shadow_h
+            pygame.draw.line(shadow_surf, (20, 15, 10, a),
+                             (0, i), (SCREEN_WIDTH, i))
+        self.screen.blit(shadow_surf, (0, panel_y - shadow_h))
+
+        # Cream card edge strip
+        edge_rect = pygame.Rect(0, panel_y - 3, SCREEN_WIDTH, HUD_PANEL_HEIGHT + 3)
+        pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect)
+
+        # Parchment background (main card body)
         pygame.draw.rect(self.screen, COLOR_PARCHMENT, panel_rect)
 
         # Cross-hatch shading along top 10px
@@ -1464,23 +1604,27 @@ class Renderer:
         self.screen.blit(cards_text, (right_x, right_y + 28))
 
     def _draw_round_banner(self, game_logic):
-        """Draw the round/phase banner at top-center."""
+        """Draw the round/phase banner as a card-style tag at top-center."""
         banner_w = 220
         banner_h = 36
         bx = SCREEN_WIDTH // 2 - banner_w // 2
         by = 4
 
-        # Banner background (parchment with notched edges)
-        banner_rect = pygame.Rect(bx, by, banner_w, banner_h)
-        pygame.draw.rect(self.screen, COLOR_PARCHMENT, banner_rect)
-        pygame.draw.rect(self.screen, COLOR_INK, banner_rect, 2)
+        # Drop shadow
+        shadow_surf = pygame.Surface((banner_w + 6, banner_h + 6), pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, (20, 15, 10, 80),
+                         pygame.Rect(3, 3, banner_w, banner_h),
+                         border_radius=6)
+        self.screen.blit(shadow_surf, (bx - 2, by - 1))
 
-        # Small notch decorations at top corners
-        notch = 6
-        pygame.draw.line(self.screen, COLOR_INK,
-                         (bx, by + notch), (bx + notch, by), 1)
-        pygame.draw.line(self.screen, COLOR_INK,
-                         (bx + banner_w, by + notch), (bx + banner_w - notch, by), 1)
+        # Card edge
+        edge_rect = pygame.Rect(bx - 2, by - 2, banner_w + 4, banner_h + 4)
+        pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect, border_radius=8)
+
+        # Banner background (parchment)
+        banner_rect = pygame.Rect(bx, by, banner_w, banner_h)
+        pygame.draw.rect(self.screen, COLOR_PARCHMENT, banner_rect, border_radius=6)
+        pygame.draw.rect(self.screen, COLOR_INK, banner_rect, 2, border_radius=6)
 
         # Phase text
         if game_logic.is_monster_phase:
@@ -1617,19 +1761,43 @@ class Renderer:
         self.screen.blit(hint_surf, (bg_rect.x + 10, bg_rect.y + 4))
 
     def render_menu(self):
-        """Render main menu."""
-        self.screen.fill(COLOR_BG)
+        """Render main menu as a board game box cover."""
+        self._draw_table_background()
+
+        # Central card panel (like a game box)
+        card_w, card_h = 500, 400
+        card_x = SCREEN_WIDTH // 2 - card_w // 2
+        card_y = SCREEN_HEIGHT // 2 - card_h // 2 - 20
+        card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+        self._draw_card_panel(card_rect, radius=12)
+
+        # Ornate double border inside card
+        inner = pygame.Rect(card_x + 12, card_y + 12, card_w - 24, card_h - 24)
+        pygame.draw.rect(self.screen, COLOR_INK, inner, 2, border_radius=8)
+        inner2 = pygame.Rect(card_x + 16, card_y + 16, card_w - 32, card_h - 32)
+        pygame.draw.rect(self.screen, COLOR_INK_LIGHT, inner2, 1, border_radius=6)
+
+        # Corner flourishes
+        for cx, cy in [(card_x + 20, card_y + 20), (card_x + card_w - 20, card_y + 20),
+                        (card_x + 20, card_y + card_h - 20), (card_x + card_w - 20, card_y + card_h - 20)]:
+            pygame.draw.circle(self.screen, COLOR_INK, (cx, cy), 4, 1)
+            pygame.draw.circle(self.screen, COLOR_INK, (cx, cy), 2)
 
         # Title
         title = self.font_title.render(STRINGS["title"], True, COLOR_INK)
         self.screen.blit(title,
-                         (SCREEN_WIDTH // 2 - title.get_width() // 2, 150))
+                         (SCREEN_WIDTH // 2 - title.get_width() // 2, card_y + 50))
+
+        # Decorative line under title
+        line_y = card_y + 50 + title.get_height() + 5
+        pygame.draw.line(self.screen, COLOR_INK,
+                         (card_x + 60, line_y), (card_x + card_w - 60, line_y), 2)
 
         # Subtitle
         subtitle = self.font_medium.render(
             "A dungeon crawling board game", True, COLOR_INK_LIGHT)
         self.screen.blit(subtitle,
-                         (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 220))
+                         (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, line_y + 12))
 
         # Buttons
         buttons = []
@@ -1640,12 +1808,25 @@ class Renderer:
         ]
 
         for i, (label, action) in enumerate(button_labels):
-            rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, 320 + i * 60, 200, 45)
-            from constants import COLOR_UI_BUTTON, COLOR_UI_BUTTON_HOVER
-            color = COLOR_UI_BUTTON_HOVER if rect.collidepoint(mouse_pos) else COLOR_UI_BUTTON
-            pygame.draw.rect(self.screen, color, rect, border_radius=6)
+            btn_y = card_y + 200 + i * 60
+            rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, btn_y, 200, 45)
+            is_hover = rect.collidepoint(mouse_pos)
+            # Card-style button
+            if is_hover:
+                bg = COLOR_PARCHMENT_DARK
+            else:
+                bg = COLOR_PARCHMENT
+            # Small shadow
+            shadow = pygame.Surface((204, 49), pygame.SRCALPHA)
+            pygame.draw.rect(shadow, (20, 15, 10, 60),
+                             pygame.Rect(2, 2, 200, 45), border_radius=6)
+            self.screen.blit(shadow, (rect.x, rect.y))
+            pygame.draw.rect(self.screen, COLOR_CARD_EDGE,
+                             pygame.Rect(rect.x - 2, rect.y - 2, 204, 49),
+                             border_radius=8)
+            pygame.draw.rect(self.screen, bg, rect, border_radius=6)
             pygame.draw.rect(self.screen, COLOR_INK, rect, 2, border_radius=6)
-            text = self.font_medium.render(label, True, COLOR_UI_TEXT)
+            text = self.font_medium.render(label, True, COLOR_INK)
             self.screen.blit(text, (rect.centerx - text.get_width() // 2,
                                     rect.centery - text.get_height() // 2))
             buttons.append((rect, action))
@@ -1654,22 +1835,30 @@ class Renderer:
 
     def render_mode_select(self):
         """Render game mode selection screen."""
-        self.screen.fill(COLOR_BG)
+        self._draw_table_background()
+
+        # Card panel
+        card_w, card_h = 500, 400
+        card_x = SCREEN_WIDTH // 2 - card_w // 2
+        card_y = 60
+        self._draw_card_panel(pygame.Rect(card_x, card_y, card_w, card_h), radius=10)
 
         # Title
-        title = self.font_large.render("Choose Game Mode", True, COLOR_UI_HIGHLIGHT)
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 120))
+        title = self.font_large.render("Choose Game Mode", True, COLOR_INK)
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, card_y + 25))
 
         buttons = []
         mouse_pos = pygame.mouse.get_pos()
 
-        # Single player button
-        single_rect = pygame.Rect(SCREEN_WIDTH // 2 - 150, 250, 300, 80)
-        from constants import COLOR_UI_BUTTON, COLOR_UI_BUTTON_HOVER
-        color = COLOR_UI_BUTTON_HOVER if single_rect.collidepoint(mouse_pos) else COLOR_UI_BUTTON
-        pygame.draw.rect(self.screen, color, single_rect, border_radius=8)
+        # Single player button (card style)
+        single_rect = pygame.Rect(SCREEN_WIDTH // 2 - 150, card_y + 80, 300, 80)
+        bg = COLOR_PARCHMENT_DARK if single_rect.collidepoint(mouse_pos) else COLOR_PARCHMENT
+        pygame.draw.rect(self.screen, COLOR_CARD_EDGE,
+                         pygame.Rect(single_rect.x - 2, single_rect.y - 2, 304, 84),
+                         border_radius=10)
+        pygame.draw.rect(self.screen, bg, single_rect, border_radius=8)
         pygame.draw.rect(self.screen, COLOR_INK, single_rect, 2, border_radius=8)
-        st = self.font_medium.render("Single Player", True, COLOR_UI_TEXT)
+        st = self.font_medium.render("Single Player", True, COLOR_INK)
         sd = self.font_small.render("One hero enters the dungeon alone", True, COLOR_INK_LIGHT)
         self.screen.blit(st, (single_rect.centerx - st.get_width() // 2,
                               single_rect.y + 18))
@@ -1677,12 +1866,15 @@ class Renderer:
                               single_rect.y + 50))
         buttons.append((single_rect, "single"))
 
-        # Multiplayer button
-        multi_rect = pygame.Rect(SCREEN_WIDTH // 2 - 150, 360, 300, 80)
-        color = COLOR_UI_BUTTON_HOVER if multi_rect.collidepoint(mouse_pos) else COLOR_UI_BUTTON
-        pygame.draw.rect(self.screen, color, multi_rect, border_radius=8)
+        # Multiplayer button (card style)
+        multi_rect = pygame.Rect(SCREEN_WIDTH // 2 - 150, card_y + 180, 300, 80)
+        bg = COLOR_PARCHMENT_DARK if multi_rect.collidepoint(mouse_pos) else COLOR_PARCHMENT
+        pygame.draw.rect(self.screen, COLOR_CARD_EDGE,
+                         pygame.Rect(multi_rect.x - 2, multi_rect.y - 2, 304, 84),
+                         border_radius=10)
+        pygame.draw.rect(self.screen, bg, multi_rect, border_radius=8)
         pygame.draw.rect(self.screen, COLOR_INK, multi_rect, 2, border_radius=8)
-        mt = self.font_medium.render("Multiplayer (2-4)", True, COLOR_UI_TEXT)
+        mt = self.font_medium.render("Multiplayer (2-4)", True, COLOR_INK)
         md = self.font_small.render("Brave the dungeon with friends", True, COLOR_INK_LIGHT)
         self.screen.blit(mt, (multi_rect.centerx - mt.get_width() // 2,
                               multi_rect.y + 18))
@@ -1690,9 +1882,10 @@ class Renderer:
                               multi_rect.y + 50))
         buttons.append((multi_rect, "multi"))
 
-        # Back button
-        back_rect = pygame.Rect(20, SCREEN_HEIGHT - 60, 80, 35)
-        pygame.draw.rect(self.screen, (60, 50, 40), back_rect, border_radius=4)
+        # Back button (card style)
+        back_rect = pygame.Rect(card_x + 10, card_y + card_h - 50, 80, 35)
+        pygame.draw.rect(self.screen, COLOR_PARCHMENT_DARK, back_rect, border_radius=4)
+        pygame.draw.rect(self.screen, COLOR_INK, back_rect, 1, border_radius=4)
         bt = self.font_small.render(STRINGS["back"], True, COLOR_UI_TEXT)
         self.screen.blit(bt, (back_rect.centerx - bt.get_width() // 2,
                               back_rect.centery - bt.get_height() // 2))
@@ -1701,40 +1894,48 @@ class Renderer:
         return buttons
 
     def render_character_select(self, num_players, selected_characters):
-        """Render character selection screen."""
-        self.screen.fill(COLOR_BG)
+        """Render character selection screen as playing cards on table."""
+        self._draw_table_background()
 
-        # Title
-        title = self.font_large.render(STRINGS["select_character"], True, COLOR_UI_HIGHLIGHT)
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 30))
+        # Title on a small card tag
+        title_w = 340
+        title_rect = pygame.Rect(SCREEN_WIDTH // 2 - title_w // 2, 10, title_w, 40)
+        self._draw_card_panel(title_rect, radius=6)
+        title = self.font_large.render(STRINGS["select_character"], True, COLOR_INK)
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 16))
 
-        # Player count selector
+        # Player count on small card
+        count_rect = pygame.Rect(30, 65, 220, 35)
+        self._draw_card_panel(count_rect, radius=4)
         players_text = self.font_medium.render(
-            f"Players: {num_players}", True, COLOR_UI_TEXT)
-        self.screen.blit(players_text, (50, 80))
+            f"Players: {num_players}", True, COLOR_INK)
+        self.screen.blit(players_text, (40, 72))
 
         buttons = []
         mouse_pos = pygame.mouse.get_pos()
 
-        # Player count buttons
+        # Player count buttons (card tokens)
         for i in range(1, 5):
-            rect = pygame.Rect(200 + (i - 1) * 50, 75, 40, 30)
-            from constants import COLOR_UI_BUTTON, COLOR_UI_BUTTON_HOVER
+            rect = pygame.Rect(260 + (i - 1) * 50, 70, 40, 30)
             selected = (i == num_players)
             if selected:
-                color = COLOR_UI_HIGHLIGHT
+                bg = COLOR_UI_HIGHLIGHT
             elif rect.collidepoint(mouse_pos):
-                color = COLOR_UI_BUTTON_HOVER
+                bg = COLOR_PARCHMENT_DARK
             else:
-                color = COLOR_UI_BUTTON
-            pygame.draw.rect(self.screen, color, rect, border_radius=4)
+                bg = COLOR_PARCHMENT
+            pygame.draw.rect(self.screen, COLOR_CARD_EDGE,
+                             pygame.Rect(rect.x - 1, rect.y - 1, 42, 32),
+                             border_radius=5)
+            pygame.draw.rect(self.screen, bg, rect, border_radius=4)
+            pygame.draw.rect(self.screen, COLOR_INK, rect, 1, border_radius=4)
             text = self.font_small.render(str(i), True,
-                                          (0, 0, 0) if selected else COLOR_UI_TEXT)
+                                          (35, 30, 25) if selected else COLOR_INK)
             self.screen.blit(text, (rect.centerx - text.get_width() // 2,
                                     rect.centery - text.get_height() // 2))
             buttons.append((rect, f"players_{i}"))
 
-        # Character cards
+        # Character cards (playing card style on table)
         from constants import CHARACTERS
         card_width = 300
         card_height = 350
@@ -1745,23 +1946,34 @@ class Renderer:
             cx = start_x + idx * (card_width + 20)
             card_rect = pygame.Rect(cx, y, card_width, card_height)
 
-            # Check if this character is selected by current player being configured
             is_selected = char_name in selected_characters
-            border_color = COLOR_UI_HIGHLIGHT if is_selected else (80, 65, 50)
 
-            # Card background
-            pygame.draw.rect(self.screen, (50, 40, 35), card_rect, border_radius=8)
-            pygame.draw.rect(self.screen, border_color, card_rect, 3, border_radius=8)
+            # Card with shadow + cream edge
+            self._draw_card_panel(card_rect, radius=10)
 
-            # Character name
+            # Selected highlight border
+            if is_selected:
+                pygame.draw.rect(self.screen, COLOR_UI_HIGHLIGHT, card_rect, 3,
+                                 border_radius=10)
+            else:
+                pygame.draw.rect(self.screen, COLOR_INK, card_rect, 1,
+                                 border_radius=10)
+
+            # Inner decorative border
+            inner_rect = pygame.Rect(cx + 8, y + 8, card_width - 16, card_height - 16)
+            pygame.draw.rect(self.screen, COLOR_INK_LIGHT, inner_rect, 1,
+                             border_radius=6)
+
+            # Character name (dark ink on parchment)
             name = self.font_large.render(char_name, True, stats["color"])
             self.screen.blit(name, (cx + card_width // 2 - name.get_width() // 2, y + 15))
 
-            # Character avatar (simple circle)
-            pygame.draw.circle(self.screen, stats["color"],
-                               (cx + card_width // 2, y + 100), 40)
-            pygame.draw.circle(self.screen, (255, 255, 255),
-                               (cx + card_width // 2, y + 100), 40, 2)
+            # Character avatar (circle with card-edge ring)
+            avatar_cx = cx + card_width // 2
+            avatar_cy = y + 100
+            pygame.draw.circle(self.screen, COLOR_CARD_EDGE, (avatar_cx, avatar_cy), 42)
+            pygame.draw.circle(self.screen, stats["color"], (avatar_cx, avatar_cy), 40)
+            pygame.draw.circle(self.screen, COLOR_INK, (avatar_cx, avatar_cy), 42, 2)
 
             # Stats
             stat_y = y + 160
@@ -1772,44 +1984,50 @@ class Renderer:
                 f"Speed: {stats['speed']}",
             ]
             for si, stat_label in enumerate(stat_labels):
-                st = self.font_medium.render(stat_label, True, COLOR_UI_TEXT)
+                st = self.font_medium.render(stat_label, True, COLOR_INK)
                 self.screen.blit(st, (cx + 20, stat_y + si * 30))
 
             # Description
-            desc = self.font_small.render(stats["description"], True, (160, 150, 130))
+            desc = self.font_small.render(stats["description"], True, COLOR_INK_LIGHT)
             self.screen.blit(desc, (cx + 20, stat_y + 130))
 
-            # Select button
+            # Select button (card style)
             btn_rect = pygame.Rect(cx + 50, y + card_height - 50, card_width - 100, 35)
-            from constants import COLOR_UI_BUTTON_HOVER
-            btn_color = (COLOR_UI_HIGHLIGHT if is_selected
-                         else (COLOR_UI_BUTTON_HOVER if btn_rect.collidepoint(mouse_pos)
-                               else COLOR_UI_BUTTON))
-            pygame.draw.rect(self.screen, btn_color, btn_rect, border_radius=4)
+            if is_selected:
+                btn_bg = COLOR_UI_HIGHLIGHT
+            elif btn_rect.collidepoint(mouse_pos):
+                btn_bg = COLOR_PARCHMENT_DARK
+            else:
+                btn_bg = COLOR_PARCHMENT
+            pygame.draw.rect(self.screen, btn_bg, btn_rect, border_radius=4)
+            pygame.draw.rect(self.screen, COLOR_INK, btn_rect, 1, border_radius=4)
             btn_text = "Selected" if is_selected else "Select"
             bt = self.font_small.render(btn_text, True,
-                                        (0, 0, 0) if is_selected else COLOR_UI_TEXT)
+                                        (35, 30, 25) if is_selected else COLOR_INK)
             self.screen.blit(bt, (btn_rect.centerx - bt.get_width() // 2,
                                   btn_rect.centery - bt.get_height() // 2))
             buttons.append((btn_rect, f"select_{char_name}"))
 
-        # Play button
+        # Play button (card style)
         if len(selected_characters) >= num_players:
             play_rect = pygame.Rect(SCREEN_WIDTH // 2 - 80, SCREEN_HEIGHT - 70, 160, 45)
-            from constants import COLOR_UI_BUTTON_HOVER
-            play_color = (COLOR_UI_BUTTON_HOVER if play_rect.collidepoint(mouse_pos)
-                          else COLOR_UI_BUTTON)
-            pygame.draw.rect(self.screen, play_color, play_rect, border_radius=6)
+            play_hover = play_rect.collidepoint(mouse_pos)
+            bg = COLOR_PARCHMENT_DARK if play_hover else COLOR_PARCHMENT
+            pygame.draw.rect(self.screen, COLOR_CARD_EDGE,
+                             pygame.Rect(play_rect.x - 2, play_rect.y - 2, 164, 49),
+                             border_radius=8)
+            pygame.draw.rect(self.screen, bg, play_rect, border_radius=6)
             pygame.draw.rect(self.screen, COLOR_UI_HIGHLIGHT, play_rect, 2, border_radius=6)
-            pt = self.font_medium.render(STRINGS["play"], True, COLOR_UI_HIGHLIGHT)
+            pt = self.font_medium.render(STRINGS["play"], True, COLOR_INK)
             self.screen.blit(pt, (play_rect.centerx - pt.get_width() // 2,
                                   play_rect.centery - pt.get_height() // 2))
             buttons.append((play_rect, "play"))
 
-        # Back button
+        # Back button (card style)
         back_rect = pygame.Rect(20, SCREEN_HEIGHT - 60, 80, 35)
-        pygame.draw.rect(self.screen, (60, 50, 40), back_rect, border_radius=4)
-        bt = self.font_small.render(STRINGS["back"], True, COLOR_UI_TEXT)
+        pygame.draw.rect(self.screen, COLOR_PARCHMENT_DARK, back_rect, border_radius=4)
+        pygame.draw.rect(self.screen, COLOR_INK, back_rect, 1, border_radius=4)
+        bt = self.font_small.render(STRINGS["back"], True, COLOR_INK)
         self.screen.blit(bt, (back_rect.centerx - bt.get_width() // 2,
                               back_rect.centery - bt.get_height() // 2))
         buttons.append((back_rect, "back"))
@@ -1817,52 +2035,64 @@ class Renderer:
         return buttons
 
     def render_game_over(self, won, score=None):
-        """Render game over screen."""
-        self.screen.fill(COLOR_BG)
+        """Render game over screen as a score card on the table."""
+        self._draw_table_background()
 
         if won:
             text = STRINGS["game_over_win"]
-            color = (255, 215, 0)
+            color = (180, 140, 20)
         else:
             text = STRINGS["game_over_lose"]
-            color = (200, 50, 50)
+            color = (180, 50, 50)
+
+        # Score card panel
+        card_w, card_h = 400, 380
+        card_x = SCREEN_WIDTH // 2 - card_w // 2
+        card_y = 100
+        card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+        self._draw_card_panel(card_rect, radius=12)
+
+        # Inner border
+        inner = pygame.Rect(card_x + 10, card_y + 10, card_w - 20, card_h - 20)
+        pygame.draw.rect(self.screen, COLOR_INK_LIGHT, inner, 1, border_radius=8)
 
         title = self.font_title.render(text, True, color)
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 200))
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2,
+                                  card_y + 25))
+
+        # Decorative line
+        pygame.draw.line(self.screen, COLOR_INK,
+                         (card_x + 40, card_y + 80), (card_x + card_w - 40, card_y + 80), 2)
 
         # Score breakdown
         if score:
-            score_y = 280
+            score_y = card_y + 95
             score_lines = [
                 f"Level: {score['max_level']}",
                 f"Monsters Slain: {score['kills']}",
                 f"Gold Collected: {score['gold']}",
                 f"Rounds Survived: {score['rounds']}",
             ]
-            # Parchment panel behind score
-            panel_w = 320
-            panel_h = len(score_lines) * 30 + 20
-            panel_x = SCREEN_WIDTH // 2 - panel_w // 2
-            pygame.draw.rect(self.screen, COLOR_PARCHMENT,
-                             pygame.Rect(panel_x, score_y, panel_w, panel_h))
-            pygame.draw.rect(self.screen, COLOR_INK,
-                             pygame.Rect(panel_x, score_y, panel_w, panel_h), 2)
             for i, line in enumerate(score_lines):
                 line_surf = self.font_medium.render(line, True, COLOR_INK)
                 self.screen.blit(line_surf,
                                  (SCREEN_WIDTH // 2 - line_surf.get_width() // 2,
-                                  score_y + 10 + i * 30))
-            btn_y = score_y + panel_h + 20
+                                  score_y + 10 + i * 35))
+            btn_y = card_y + card_h - 60
         else:
-            btn_y = 400
+            btn_y = card_y + card_h - 60
 
-        # Menu button
+        # Menu button (card style)
         buttons = []
         rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, btn_y, 200, 45)
         mouse_pos = pygame.mouse.get_pos()
-        btn_color = COLOR_UI_BUTTON_HOVER if rect.collidepoint(mouse_pos) else COLOR_UI_BUTTON
-        pygame.draw.rect(self.screen, btn_color, rect, border_radius=6)
-        text = self.font_medium.render("Main Menu", True, COLOR_UI_TEXT)
+        bg = COLOR_PARCHMENT_DARK if rect.collidepoint(mouse_pos) else COLOR_PARCHMENT
+        pygame.draw.rect(self.screen, COLOR_CARD_EDGE,
+                         pygame.Rect(rect.x - 2, rect.y - 2, 204, 49),
+                         border_radius=8)
+        pygame.draw.rect(self.screen, bg, rect, border_radius=6)
+        pygame.draw.rect(self.screen, COLOR_INK, rect, 2, border_radius=6)
+        text = self.font_medium.render("Main Menu", True, COLOR_INK)
         self.screen.blit(text, (rect.centerx - text.get_width() // 2,
                                 rect.centery - text.get_height() // 2))
         buttons.append((rect, "menu"))
