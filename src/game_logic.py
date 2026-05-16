@@ -62,6 +62,10 @@ class GameLogic:
         # Check if at edge - expand map
         self.world.check_edge_and_expand(target_row, target_col)
 
+        # Check boss room entry (lock door behind player)
+        if self.world.check_boss_room_entry(target_row, target_col):
+            self.log_message("The door slams shut behind you!")
+
         self.log_message(f"{player.character_type} moved to ({target_row}, {target_col})")
         return True
 

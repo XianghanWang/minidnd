@@ -2,7 +2,7 @@
 
 from constants import (
     CARD_COLS, CARD_ROWS, TILE_ROAD, TILE_WALL, TILE_DOOR,
-    TILE_DOOR_LOCKED, TILE_CHEST
+    TILE_DOOR_LOCKED, TILE_CHEST, BOSS_GRID_ROWS, BOSS_GRID_COLS
 )
 from dungeon import DungeonDeck, DungeonCard
 from entities import Monster
@@ -21,6 +21,9 @@ class WorldMap:
         self.monsters = []
         self.opened_chests = set()  # (world_row, world_col)
         self.opened_doors = set()  # (world_row, world_col)
+
+        # Boss room tracking
+        self.boss_room = None  # dict with origin, door_tile, locked, card_positions
 
         # Place initial card at (0, 0)
         self._place_card(0, 0)
@@ -121,8 +124,13 @@ class WorldMap:
             card_col = -((-world_col - 1) // CARD_COLS + 1)
             local_col = world_col - card_col * CARD_COLS
 
-        center_row = CARD_ROWS // 2  # 3
-        center_col = CARD_COLS // 2  # 5
+        # Don't expand from boss room sub-cards
+        card = self.cards.get((card_row, card_col))
+        if card and card.is_boss_sub:
+            return
+
+        center_row = CARD_ROWS // 2
+        center_col = CARD_COLS // 2
 
         # Only expand at connection points (center of each edge)
         if local_row == 0 and local_col == center_col:
@@ -135,9 +143,120 @@ class WorldMap:
             self._try_place_card(card_row, card_col + 1)
 
     def _try_place_card(self, card_row, card_col):
-        """Place a card if not already placed."""
-        if (card_row, card_col) not in self.cards:
+        """Place a card if not already placed. May place boss room."""
+        if (card_row, card_col) in self.cards:
+            return
+
+        # Check if we should place boss room
+        if self.deck.should_draw_boss():
+            self._try_place_boss_room(card_row, card_col)
+        else:
             self._place_card(card_row, card_col)
+
+    def _try_place_boss_room(self, trigger_card_row, trigger_card_col):
+        """Place a 3x3 boss room grid anchored at the trigger position."""
+        # Determine entry side based on which direction the player is expanding
+        # The trigger card is where the boss room connects to the existing map.
+        # We need to figure out which side of the 3x3 block faces the source.
+        # The trigger card IS part of the boss room (the entry edge).
+
+        # Find which existing card triggered this expansion
+        # Check neighbors to find the source card
+        entry_side = "top"
+        if (trigger_card_row + 1, trigger_card_col) in self.cards:
+            entry_side = "top"  # source is below, boss room extends up
+        elif (trigger_card_row - 1, trigger_card_col) in self.cards:
+            entry_side = "bottom"  # source is above
+        elif (trigger_card_row, trigger_card_col + 1) in self.cards:
+            entry_side = "left"  # source is to the right
+        elif (trigger_card_row, trigger_card_col - 1) in self.cards:
+            entry_side = "right"  # source is to the left
+
+        # Calculate the origin (top-left card of 3x3 grid)
+        # The trigger card should be the middle of the entry edge
+        if entry_side == "top":
+            origin_r = trigger_card_row - (BOSS_GRID_ROWS - 1)
+            origin_c = trigger_card_col - BOSS_GRID_COLS // 2
+        elif entry_side == "bottom":
+            origin_r = trigger_card_row
+            origin_c = trigger_card_col - BOSS_GRID_COLS // 2
+        elif entry_side == "left":
+            origin_r = trigger_card_row - BOSS_GRID_ROWS // 2
+            origin_c = trigger_card_col - (BOSS_GRID_COLS - 1)
+        else:  # right
+            origin_r = trigger_card_row - BOSS_GRID_ROWS // 2
+            origin_c = trigger_card_col
+
+        # Check if all 9 positions are available
+        for gr in range(BOSS_GRID_ROWS):
+            for gc in range(BOSS_GRID_COLS):
+                pos = (origin_r + gr, origin_c + gc)
+                if pos in self.cards:
+                    # Can't place boss here, fall back to normal card
+                    self._place_card(trigger_card_row, trigger_card_col)
+                    return
+
+        # Generate boss room cards
+        boss_cards, door_info = self.deck.generate_boss_cards(entry_side)
+        door_card_gr, door_card_gc, door_local_r, door_local_c = door_info
+
+        # Place all 9 cards
+        card_positions = set()
+        for (gr, gc), card in boss_cards.items():
+            world_card_r = origin_r + gr
+            world_card_c = origin_c + gc
+            self.cards[(world_card_r, world_card_c)] = card
+            card_positions.add((world_card_r, world_card_c))
+
+            # Spawn monsters
+            for local_r, local_c, monster_type in card.monsters:
+                world_r = world_card_r * CARD_ROWS + local_r
+                world_c = world_card_c * CARD_COLS + local_c
+                self.monsters.append(Monster(monster_type, world_r, world_c))
+
+        # Calculate door world position
+        door_world_r = (origin_r + door_card_gr) * CARD_ROWS + door_local_r
+        door_world_c = (origin_c + door_card_gc) * CARD_COLS + door_local_c
+
+        # Store boss room metadata
+        self.boss_room = {
+            "origin": (origin_r, origin_c),
+            "card_positions": card_positions,
+            "door_tile": (door_world_r, door_world_c),
+            "locked": False,
+            "entry_side": entry_side,
+        }
+
+    def check_boss_room_entry(self, world_row, world_col):
+        """Check if player entered boss room and lock the door.
+        Returns True if door was just locked (for message display)."""
+        if self.boss_room is None or self.boss_room["locked"]:
+            return False
+
+        # Check if the player is inside the boss room (not on the door tile)
+        door_r, door_c = self.boss_room["door_tile"]
+        if (world_row, world_col) == (door_r, door_c):
+            return False  # Still on the door, not inside yet
+
+        # Check if player is on any boss room card
+        card_row = world_row // CARD_ROWS
+        card_col = world_col // CARD_COLS
+        if world_row < 0:
+            card_row = -((-world_row - 1) // CARD_ROWS + 1)
+        if world_col < 0:
+            card_col = -((-world_col - 1) // CARD_COLS + 1)
+
+        if (card_row, card_col) in self.boss_room["card_positions"]:
+            # Player is inside the boss room — lock the door!
+            self.boss_room["locked"] = True
+            # Change door tile to wall (sealed)
+            card = self.cards.get((door_r // CARD_ROWS, door_c // CARD_COLS))
+            if card:
+                local_r = door_r % CARD_ROWS
+                local_c = door_c % CARD_COLS
+                card.tiles[local_r][local_c] = TILE_WALL
+            return True
+        return False
 
     def get_alive_monsters(self):
         """Get list of alive monsters."""

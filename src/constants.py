@@ -13,6 +13,10 @@ TILE_SIZE = 48
 CARD_COLS = 7
 CARD_ROWS = 5
 
+# Boss room spans 3x3 card grid = 15 rows x 21 cols
+BOSS_GRID_ROWS = 3
+BOSS_GRID_COLS = 3
+
 # Colors (hand-drawn ink-on-parchment style - like a pen sketch)
 COLOR_BG = (35, 30, 28)              # Dark dungeon void (unexplored)
 COLOR_TABLE = (90, 65, 40)           # Wood table base
