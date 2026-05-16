@@ -249,12 +249,11 @@ class GameLogic:
                 monster.action_points = 0  # Done
 
     def _get_adjacent_player(self, monster):
-        """Find an alive player adjacent to monster (dist=1)."""
+        """Find an alive player adjacent to any of the monster's tiles."""
+        adjacent_tiles = set(monster.get_adjacent_tiles())
         for player in self.players:
             if player.is_alive():
-                dist = (abs(player.world_row - monster.world_row) +
-                        abs(player.world_col - monster.world_col))
-                if dist == 1:
+                if (player.world_row, player.world_col) in adjacent_tiles:
                     return player
         return None
 
@@ -264,15 +263,16 @@ class GameLogic:
         nearest_dist = float('inf')
         for player in self.players:
             if player.is_alive():
-                # Distance from monster's home to player
                 home_dist = (abs(player.world_row - monster.home_row) +
                              abs(player.world_col - monster.home_col))
                 if home_dist <= monster.territory_range:
-                    monster_dist = (abs(player.world_row - monster.world_row) +
-                                   abs(player.world_col - monster.world_col))
-                    if monster_dist < nearest_dist:
-                        nearest_dist = monster_dist
-                        nearest_player = player
+                    # Use nearest occupied tile for multi-tile monsters
+                    min_dist = float('inf')
+                    for r, c in monster.get_occupied_tiles():
+                        d = abs(player.world_row - r) + abs(player.world_col - c)
+                        min_dist = min(min_dist, d)
+                    if min_dist < nearest_dist:
+                        nearest_dist = min_dist
                         nearest = player
         return nearest
 
@@ -313,15 +313,13 @@ class GameLogic:
             # Must stay within territory
             if not monster.is_in_territory(new_r, new_c):
                 continue
-            if (self.world.is_walkable(new_r, new_c) and
-                    not self.world.get_monster_at(new_r, new_c)):
-                blocked = any(p.world_row == new_r and p.world_col == new_c
-                              for p in self.players)
-                if not blocked:
-                    monster.world_row = new_r
-                    monster.world_col = new_c
-                    self._check_trap(monster, new_r, new_c)
-                    return
+            # Check all tiles the monster would occupy after moving
+            if not self._can_monster_move_to(monster, new_r, new_c):
+                continue
+            monster.world_row = new_r
+            monster.world_col = new_c
+            self._check_trap(monster, new_r, new_c)
+            return
 
     def _monster_return_home(self, monster):
         """Move monster one step toward its home position."""
@@ -340,15 +338,30 @@ class GameLogic:
         for move_r, move_c in moves:
             new_r = monster.world_row + move_r
             new_c = monster.world_col + move_c
-            if (self.world.is_walkable(new_r, new_c) and
-                    not self.world.get_monster_at(new_r, new_c)):
-                blocked = any(p.world_row == new_r and p.world_col == new_c
-                              for p in self.players)
-                if not blocked:
-                    monster.world_row = new_r
-                    monster.world_col = new_c
-                    self._check_trap(monster, new_r, new_c)
-                    return
+            if not self._can_monster_move_to(monster, new_r, new_c):
+                continue
+            monster.world_row = new_r
+            monster.world_col = new_c
+            self._check_trap(monster, new_r, new_c)
+            return
+
+    def _can_monster_move_to(self, monster, new_r, new_c):
+        """Check if a monster can move to (new_r, new_c), checking all tiles it occupies."""
+        current_tiles = set(monster.get_occupied_tiles())
+        for dr in range(monster.size):
+            for dc in range(monster.size):
+                tr, tc = new_r + dr, new_c + dc
+                if (tr, tc) in current_tiles:
+                    continue  # Monster already occupies this tile
+                if not self.world.is_walkable(tr, tc):
+                    return False
+                other = self.world.get_monster_at(tr, tc)
+                if other and other != monster:
+                    return False
+                for p in self.players:
+                    if p.is_alive() and p.world_row == tr and p.world_col == tc:
+                        return False
+        return True
 
     def _start_new_round(self):
         """Start a new round - back to player phase."""
@@ -377,10 +390,11 @@ class GameLogic:
     def get_valid_move_tiles(self, player):
         """Get tiles the player can reach via step-by-step movement (BFS).
         Cannot pass through tiles occupied by monsters or other players."""
-        # Build set of occupied positions (monsters + other players)
+        # Build set of occupied positions (all tiles for multi-tile monsters)
         occupied = set()
         for m in self.world.get_alive_monsters():
-            occupied.add((m.world_row, m.world_col))
+            for tile in m.get_occupied_tiles():
+                occupied.add(tile)
         for p in self.players:
             if p != player and p.is_alive():
                 occupied.add((p.world_row, p.world_col))
@@ -409,23 +423,28 @@ class GameLogic:
         return valid
 
     def get_attackable_monsters(self, player):
-        """Get monsters within player's attack range."""
+        """Get monsters within player's attack range. For multi-tile monsters,
+        check distance to the nearest occupied tile."""
         attackable = []
         for monster in self.world.get_alive_monsters():
-            dist = (abs(monster.world_row - player.world_row) +
-                    abs(monster.world_col - player.world_col))
-            if 1 <= dist <= player.attack_range:
+            min_dist = float('inf')
+            for r, c in monster.get_occupied_tiles():
+                dist = abs(r - player.world_row) + abs(c - player.world_col)
+                min_dist = min(min_dist, dist)
+            if 1 <= min_dist <= player.attack_range:
                 attackable.append(monster)
         return attackable
 
     def get_adjacent_monsters(self, player):
-        """Get monsters adjacent to player (distance 1 only)."""
+        """Get monsters adjacent to player. For multi-tile monsters,
+        checks if player is adjacent to any of the monster's tiles."""
         adjacent = []
         for monster in self.world.get_alive_monsters():
-            dist = (abs(monster.world_row - player.world_row) +
-                    abs(monster.world_col - player.world_col))
-            if dist == 1:
-                adjacent.append(monster)
+            for r, c in monster.get_occupied_tiles():
+                dist = abs(r - player.world_row) + abs(c - player.world_col)
+                if dist == 1:
+                    adjacent.append(monster)
+                    break
         return adjacent
 
     def get_adjacent_doors(self, player):
@@ -458,6 +477,211 @@ class GameLogic:
         else:
             player.action_points += 1  # Refund
             return False
+
+    def _handle_monster_death(self, player, monster, row, col):
+        """Handle monster death: XP, loot, boss check."""
+        self.log_message(f"{monster.monster_type} defeated!")
+        self.pending_animations.append({
+            "type": "death_poof",
+            "world_row": row, "world_col": col,
+        })
+        # Award shared XP
+        xp_value = MONSTERS.get(monster.monster_type, {}).get("xp", 0)
+        if xp_value > 0:
+            alive_players = [p for p in self.players if p.is_alive()]
+            share = max(1, xp_value // len(alive_players))
+            for p in alive_players:
+                leveled = p.gain_xp(share)
+                if leveled:
+                    self.log_message(f"{p.character_type} leveled up to Lv{p.level}!")
+                    self.pending_animations.append({
+                        "type": "level_up",
+                        "world_row": p.world_row, "world_col": p.world_col,
+                    })
+        player.monsters_killed += 1
+        gold_drop = monster.attack * 5
+        player.gold += gold_drop
+        self.log_message(f"Found {gold_drop} gold!")
+        drop_chance = 1.0 if monster.monster_type == "Boss" else 0.3
+        if random.random() < drop_chance:
+            loot = generate_loot()
+            player.add_item(loot)
+            self.log_message(f"Dropped: {loot}!")
+        if monster.monster_type == "Boss":
+            self.game_over = True
+            self.game_won = True
+            self.log_message("VICTORY! The Boss is defeated!")
+        self.world.remove_dead_monsters()
+
+    def _check_trap(self, monster, row, col):
+        """Check if monster stepped on a trap."""
+        for trap in self.traps[:]:
+            if trap["row"] == row and trap["col"] == col:
+                monster.take_damage(trap["damage"])
+                monster.wake_up()
+                self.log_message(f"Trap hits {monster.monster_type} for {trap['damage']} dmg!")
+                self.pending_animations.append({
+                    "type": "trap_trigger",
+                    "world_row": row, "world_col": col,
+                    "damage": trap["damage"],
+                })
+                self.traps.remove(trap)
+                if not monster.is_alive():
+                    self.log_message(f"{monster.monster_type} defeated by trap!")
+                    self.pending_animations.append({
+                        "type": "death_poof",
+                        "world_row": row, "world_col": col,
+                    })
+                    xp_value = MONSTERS.get(monster.monster_type, {}).get("xp", 0)
+                    if xp_value > 0:
+                        alive_players = [p for p in self.players if p.is_alive()]
+                        share = max(1, xp_value // len(alive_players))
+                        for p in alive_players:
+                            leveled = p.gain_xp(share)
+                            if leveled:
+                                self.log_message(f"{p.character_type} leveled up to Lv{p.level}!")
+                    trap["owner"].monsters_killed += 1
+                    gold_drop = monster.attack * 5
+                    trap["owner"].gold += gold_drop
+                    self.world.remove_dead_monsters()
+                break
+
+    def use_skill(self, player, skill_index, target_row=None, target_col=None):
+        """Execute a skill. Returns True if successful."""
+        if not player.can_use_skill(skill_index):
+            return False
+
+        skill = player.skills[skill_index]
+
+        # Deduct AP
+        for _ in range(skill["ap_cost"]):
+            if not player.use_action_point():
+                return False
+
+        effect = skill["effect"]
+
+        if effect == "stun":
+            dist = abs(target_row - player.world_row) + abs(target_col - player.world_col)
+            if dist != 1:
+                player.action_points += skill["ap_cost"]
+                return False
+            monster = self.world.get_monster_at(target_row, target_col)
+            if not monster:
+                player.action_points += skill["ap_cost"]
+                return False
+            monster.wake_up()
+            monster.take_damage(skill["damage"])
+            monster.stun_turns = skill["stun_turns"]
+            self.log_message(f"{player.character_type} Shield Bashes {monster.monster_type}! Stunned!")
+            self.pending_animations.append({
+                "type": "player_slash",
+                "world_row": target_row, "world_col": target_col,
+                "damage": skill["damage"],
+            })
+            if not monster.is_alive():
+                self._handle_monster_death(player, monster, target_row, target_col)
+
+        elif effect == "buff_attack":
+            player.attack += skill["buff_amount"]
+            player.active_buffs.append({
+                "type": "buff_attack",
+                "amount": skill["buff_amount"],
+                "turns_left": skill["buff_turns"],
+            })
+            self.log_message(f"{player.character_type} uses War Cry! ATK +{skill['buff_amount']}!")
+            self.pending_animations.append({
+                "type": "level_up",
+                "world_row": player.world_row, "world_col": player.world_col,
+            })
+
+        elif effect == "aoe":
+            dist = abs(target_row - player.world_row) + abs(target_col - player.world_col)
+            if dist > skill["range"] or dist < 1:
+                player.action_points += skill["ap_cost"]
+                return False
+
+            primary = self.world.get_monster_at(target_row, target_col)
+
+            self.pending_animations.append({
+                "type": "fireball",
+                "world_row": target_row, "world_col": target_col,
+                "damage": skill["damage"],
+            })
+
+            if primary:
+                primary.wake_up()
+                primary.take_damage(skill["damage"])
+                self.log_message(f"Fireball hits {primary.monster_type} for {skill['damage']}!")
+                if not primary.is_alive():
+                    self._handle_monster_death(player, primary, target_row, target_col)
+
+            splash_range = skill.get("splash_range", 1)
+            splash_dmg = skill.get("splash_damage", 0)
+            for monster in self.world.get_alive_monsters():
+                if monster == primary:
+                    continue
+                m_dist = abs(monster.world_row - target_row) + abs(monster.world_col - target_col)
+                if m_dist <= splash_range:
+                    monster.wake_up()
+                    monster.take_damage(splash_dmg)
+                    self.log_message(f"Splash hits {monster.monster_type} for {splash_dmg}!")
+                    self.pending_animations.append({
+                        "type": "player_slash",
+                        "world_row": monster.world_row, "world_col": monster.world_col,
+                        "damage": splash_dmg,
+                    })
+                    if not monster.is_alive():
+                        self._handle_monster_death(player, monster, monster.world_row, monster.world_col)
+
+            self.world.remove_dead_monsters()
+
+        elif effect == "heal":
+            heal_amount = skill.get("heal_amount", 5)
+            player.heal(heal_amount)
+            self.log_message(f"{player.character_type} heals for {heal_amount} HP!")
+            self.pending_animations.append({
+                "type": "level_up",
+                "world_row": player.world_row, "world_col": player.world_col,
+            })
+
+        elif effect == "multi_hit":
+            targets = self.get_attackable_monsters(player)
+            if not targets:
+                player.action_points += skill["ap_cost"]
+                return False
+            for monster in targets:
+                monster.wake_up()
+                monster.take_damage(skill["damage"])
+                self.log_message(f"Multi-Shot hits {monster.monster_type} for {skill['damage']}!")
+                self.pending_animations.append({
+                    "type": "player_slash",
+                    "world_row": monster.world_row, "world_col": monster.world_col,
+                    "damage": skill["damage"],
+                })
+                if not monster.is_alive():
+                    self._handle_monster_death(player, monster, monster.world_row, monster.world_col)
+            self.world.remove_dead_monsters()
+
+        elif effect == "trap":
+            dist = abs(target_row - player.world_row) + abs(target_col - player.world_col)
+            if dist != 1:
+                player.action_points += skill["ap_cost"]
+                return False
+            if not self.world.is_walkable(target_row, target_col):
+                player.action_points += skill["ap_cost"]
+                return False
+            if self.world.get_monster_at(target_row, target_col):
+                player.action_points += skill["ap_cost"]
+                return False
+            self.traps.append({
+                "row": target_row, "col": target_col,
+                "damage": skill["damage"], "owner": player,
+            })
+            self.log_message(f"{player.character_type} placed a trap!")
+
+        # Set cooldown
+        player.skill_cooldowns[skill_index] = skill["cooldown"]
+        return True
 
     def get_score_summary(self):
         """Get score summary for game over screen."""

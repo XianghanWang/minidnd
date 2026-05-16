@@ -213,13 +213,14 @@ MONSTERS = {
         "action_points": 2,
     },
     "Boss": {
-        "attack": 6,
-        "health": 35,
-        "speed": 2,
+        "attack": 8,
+        "health": 60,
+        "speed": 1,
         "color": (180, 30, 180),
         "territory": 8,
         "xp": 0,
         "action_points": 3,
+        "size": 2,  # 2x2 tiles
     },
 }
 

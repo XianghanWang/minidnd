@@ -175,6 +175,7 @@ class Monster:
         self.speed = stats["speed"]
         self.color = stats["color"]
         self.territory_range = stats.get("territory", 4)
+        self.size = stats.get("size", 1)  # 1=1x1, 2=2x2
         self.world_row = world_row
         self.world_col = world_col
         self.home_row = world_row
@@ -185,6 +186,30 @@ class Monster:
         self.max_action_points = self.action_points
         self.damage_flash = 0
         self.stun_turns = 0
+
+    def occupies_tile(self, row, col):
+        """Check if this monster occupies the given tile."""
+        return (self.world_row <= row < self.world_row + self.size and
+                self.world_col <= col < self.world_col + self.size)
+
+    def get_occupied_tiles(self):
+        """Return all tiles this monster occupies."""
+        tiles = []
+        for dr in range(self.size):
+            for dc in range(self.size):
+                tiles.append((self.world_row + dr, self.world_col + dc))
+        return tiles
+
+    def get_adjacent_tiles(self):
+        """Return tiles adjacent to this monster (for attack targeting)."""
+        occupied = set(self.get_occupied_tiles())
+        adjacent = set()
+        for r, c in occupied:
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if (nr, nc) not in occupied:
+                    adjacent.add((nr, nc))
+        return list(adjacent)
 
     def take_damage(self, damage):
         """Take damage. Returns True if still alive."""

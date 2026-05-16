@@ -100,10 +100,9 @@ class WorldMap:
         self.opened_chests.add((world_row, world_col))
 
     def get_monster_at(self, world_row, world_col):
-        """Get monster at position, or None."""
+        """Get monster at position, or None. Supports multi-tile monsters."""
         for monster in self.monsters:
-            if (monster.world_row == world_row and
-                    monster.world_col == world_col and monster.is_alive()):
+            if monster.is_alive() and monster.occupies_tile(world_row, world_col):
                 return monster
         return None
 

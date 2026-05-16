@@ -51,6 +51,9 @@ class Game:
         self.drag_start = None
         self.drag_offset_start = None
 
+        # Skill targeting
+        self.armed_skill = None  # None or skill_index (0 or 1)
+
     def run(self):
         """Main game loop."""
         while self.running:
@@ -104,7 +107,10 @@ class Game:
         """Handle keyboard input."""
         if key == pygame.K_ESCAPE:
             if self.state == STATE_PLAYING:
-                self.state = STATE_MENU
+                if self.armed_skill is not None:
+                    self.armed_skill = None
+                else:
+                    self.state = STATE_MENU
             elif self.state == STATE_CHAR_SELECT:
                 self.state = STATE_MODE_SELECT
             elif self.state == STATE_MODE_SELECT:
@@ -120,6 +126,33 @@ class Game:
                 if player:
                     if self.game_logic.player_use_potion(player):
                         self.game_logic.try_advance_turn()
+        elif key == pygame.K_1 and self.state == STATE_PLAYING:
+            self._arm_skill(0)
+        elif key == pygame.K_2 and self.state == STATE_PLAYING:
+            self._arm_skill(1)
+
+    def _arm_skill(self, skill_index):
+        """Arm a skill for targeting."""
+        if not self.game_logic or not self.game_logic.is_player_phase:
+            return
+        player = self.game_logic.get_current_player()
+        if not player or not player.can_use_skill(skill_index):
+            return
+        skill = player.skills[skill_index]
+        # Self-target skills execute immediately
+        if skill["target"] == "self":
+            if self.game_logic.use_skill(player, skill_index):
+                self.armed_skill = None
+                self.game_logic.try_advance_turn()
+            return
+        # All-in-range skills execute immediately
+        if skill["target"] == "all_in_range":
+            if self.game_logic.use_skill(player, skill_index):
+                self.armed_skill = None
+                self.game_logic.try_advance_turn()
+            return
+        # Skills that need targeting
+        self.armed_skill = skill_index
 
     def _handle_menu_click(self, pos):
         """Handle clicks on main menu."""
@@ -182,6 +215,16 @@ class Game:
             if rect.collidepoint(pos):
                 if action == "skip":
                     self.game_logic.player_skip()
+                    self.armed_skill = None
+                return
+
+        # Check skill buttons
+        skill_buttons = self.renderer.render_skill_buttons(self.game_logic)
+        for rect, action in skill_buttons:
+            if rect.collidepoint(pos):
+                if action.startswith("skill_"):
+                    idx = int(action.split("_")[1])
+                    self._arm_skill(idx)
                 return
 
         # Click on game world (only in map area, above HUD)
@@ -191,6 +234,17 @@ class Game:
                 return
 
             world_row, world_col = self.renderer.camera.screen_to_world(pos[0], pos[1])
+
+            # If a skill is armed, use it on the clicked target
+            if self.armed_skill is not None:
+                success = self.game_logic.use_skill(
+                    player, self.armed_skill, world_row, world_col)
+                if success:
+                    self.armed_skill = None
+                    self.game_logic.try_advance_turn()
+                return
+
+            # Normal contextual click
             targets = self._get_contextual_targets(player)
 
             # Priority: attack → door → chest → move
@@ -218,23 +272,42 @@ class Game:
 
     def _get_contextual_targets(self, player):
         """Get all interactable tiles grouped by action type."""
-        targets = {"move": [], "attack": [], "door": [], "chest": []}
+        targets = {"move": [], "attack": [], "door": [], "chest": [], "skill": []}
         if not player or player.action_points <= 0:
             return targets
 
-        # Adjacent monsters
+        # If a skill is armed, show skill-specific targets
+        if self.armed_skill is not None and self.armed_skill < len(player.skills):
+            skill = player.skills[self.armed_skill]
+            if skill["target"] == "melee":
+                monsters = self.game_logic.get_adjacent_monsters(player)
+                skill_tiles = []
+                for m in monsters:
+                    skill_tiles.extend(m.get_occupied_tiles())
+                targets["skill"] = skill_tiles
+            elif skill["target"] == "ranged":
+                r = skill.get("range", 3)
+                for dr in range(-r, r + 1):
+                    for dc in range(-r, r + 1):
+                        if 1 <= abs(dr) + abs(dc) <= r:
+                            targets["skill"].append((player.world_row + dr, player.world_col + dc))
+            elif skill["target"] == "adjacent_tile":
+                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nr, nc = player.world_row + dr, player.world_col + dc
+                    if self.game_logic.world.is_walkable(nr, nc):
+                        if not self.game_logic.world.get_monster_at(nr, nc):
+                            targets["skill"].append((nr, nc))
+            return targets
+
+        # Normal targets
         monsters = self.game_logic.get_attackable_monsters(player)
-        targets["attack"] = [(m.world_row, m.world_col) for m in monsters]
-
-        # Adjacent doors
+        attack_tiles = []
+        for m in monsters:
+            attack_tiles.extend(m.get_occupied_tiles())
+        targets["attack"] = attack_tiles
         targets["door"] = self.game_logic.get_adjacent_doors(player)
-
-        # Adjacent chests
         targets["chest"] = self.game_logic.get_adjacent_chests(player)
-
-        # Walkable tiles in movement range
         targets["move"] = self.game_logic.get_valid_move_tiles(player)
-
         return targets
 
     def _start_game(self):
@@ -291,7 +364,7 @@ class Game:
                 self.num_players, self.selected_characters)
         elif self.state == STATE_PLAYING:
             # Compute contextual highlights
-            highlights = {"move": [], "attack": [], "door": [], "chest": []}
+            highlights = {"move": [], "attack": [], "door": [], "chest": [], "skill": []}
             player = self.game_logic.get_current_player()
             if player and player.action_points > 0:
                 highlights = self._get_contextual_targets(player)
@@ -299,6 +372,14 @@ class Game:
                 self.world, self.players, self.game_logic, highlights,
                 camera_offset=(self.camera_offset_x, self.camera_offset_y))
             self.renderer.render_skip_button(self.game_logic)
+            self.renderer.render_skill_buttons(self.game_logic)
+            # Skill armed hint
+            if self.armed_skill is not None and self.game_logic:
+                player = self.game_logic.get_current_player()
+                if player and self.armed_skill < len(player.skills):
+                    skill = player.skills[self.armed_skill]
+                    hint = f"{skill['name']} armed — click target. Esc to cancel."
+                    self.renderer.draw_skill_hint(hint)
         elif self.state == STATE_GAME_OVER:
             score = self.game_logic.get_score_summary()
             self.renderer.render_game_over(self.game_logic.game_won, score)

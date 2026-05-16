@@ -72,6 +72,12 @@ class Renderer:
         # Draw tiles
         self._draw_tiles(world)
 
+        # Draw torch glow around players
+        self._draw_torch_glow(players)
+
+        # Draw traps
+        self._draw_traps(game_logic)
+
         # Draw highlighted tiles
         self._draw_highlights(highlights)
 
@@ -126,28 +132,45 @@ class Renderer:
                 rect = pygame.Rect(sx, sy, TILE_SIZE, TILE_SIZE)
 
                 if tile == TILE_ROAD:
-                    # Cream/parchment floor with subtle texture
+                    # Dark stone dungeon floor
                     pygame.draw.rect(self.screen, COLOR_ROAD, rect)
-                    # Subtle floor cracks (hand-drawn feel)
+                    # Stone slab pattern
                     seed = (row * 1000 + col) % 7
                     if seed == 0:
-                        pygame.draw.line(self.screen, COLOR_INK_LIGHT,
+                        pygame.draw.line(self.screen, COLOR_GRID_LINE,
                                          (sx + 8, sy + 20), (sx + 30, sy + 25), 1)
                     elif seed == 3:
-                        pygame.draw.line(self.screen, COLOR_INK_LIGHT,
+                        pygame.draw.line(self.screen, COLOR_GRID_LINE,
                                          (sx + 15, sy + 35), (sx + 38, sy + 30), 1)
+                    elif seed == 5:
+                        # Tiny pebble
+                        pygame.draw.circle(self.screen, COLOR_GRID_LINE,
+                                           (sx + 20, sy + 15), 2, 1)
+                    # Subtle slab lines
+                    if (row + col) % 3 == 0:
+                        pygame.draw.line(self.screen, COLOR_GRID_LINE,
+                                         (sx + 2, sy + TILE_SIZE // 2),
+                                         (sx + TILE_SIZE - 2, sy + TILE_SIZE // 2), 1)
 
                 elif tile == TILE_WALL:
-                    # Solid dark wall with cross-hatching (ink sketch style)
+                    # Dark dungeon wall with brick pattern
                     pygame.draw.rect(self.screen, COLOR_WALL, rect)
-                    # Cross-hatch pattern
-                    for i in range(0, TILE_SIZE + TILE_SIZE, 8):
-                        # Diagonal lines going one way
+                    # Brick pattern: horizontal lines with staggered vertical breaks
+                    for row_off in range(0, TILE_SIZE, 12):
                         pygame.draw.line(self.screen, COLOR_WALL_HATCH,
-                                         (sx + i, sy), (sx + i - TILE_SIZE, sy + TILE_SIZE), 1)
-                        # Diagonal lines going other way
+                                         (sx, sy + row_off), (sx + TILE_SIZE, sy + row_off), 1)
+                    # Vertical brick breaks (staggered)
+                    for row_off in range(0, TILE_SIZE, 12):
+                        offset = TILE_SIZE // 3 if (row_off // 12) % 2 == 0 else 2 * TILE_SIZE // 3
                         pygame.draw.line(self.screen, COLOR_WALL_HATCH,
-                                         (sx + i - TILE_SIZE, sy), (sx + i, sy + TILE_SIZE), 1)
+                                         (sx + offset, sy + row_off),
+                                         (sx + offset, sy + row_off + 12), 1)
+                    # Moss spots on some walls
+                    moss_seed = (row * 31 + col * 17) % 11
+                    if moss_seed < 3:
+                        mx = sx + (moss_seed * 13 + 8) % TILE_SIZE
+                        my = sy + (moss_seed * 7 + 5) % TILE_SIZE
+                        pygame.draw.circle(self.screen, (40, 55, 35), (mx, my), 2)
                     # Thick ink border
                     pygame.draw.rect(self.screen, COLOR_INK, rect, 2)
 
@@ -225,12 +248,14 @@ class Renderer:
             "attack": (255, 80, 80, 70),      # Red
             "door": (180, 140, 80, 70),       # Brown
             "chest": (255, 210, 60, 70),      # Gold
+            "skill": (160, 60, 220, 50),      # Purple
         }
         border_colors = {
             "move": (255, 255, 100, 150),
             "attack": (255, 80, 80, 180),
             "door": (180, 140, 80, 180),
             "chest": (255, 210, 60, 180),
+            "skill": (180, 80, 255, 180),
         }
         for action_type, tiles in highlights.items():
             fill = colors.get(action_type, (255, 255, 100, 60))
@@ -246,16 +271,38 @@ class Renderer:
     def _draw_monsters(self, world):
         """Draw all alive monsters with state-based visuals."""
         for monster in world.get_alive_monsters():
+            is_multi = monster.size > 1
             sx, sy = self.camera.world_to_screen(monster.world_row, monster.world_col)
-            center_x = sx + TILE_SIZE // 2
-            center_y = sy + TILE_SIZE // 2
-            radius = TILE_SIZE // 3
+
+            if is_multi:
+                # Multi-tile monster spans size*TILE_SIZE
+                tile_span = monster.size * TILE_SIZE
+                center_x = sx + tile_span // 2
+                center_y = sy + tile_span // 2
+                radius = int(tile_span / 3)
+            else:
+                center_x = sx + TILE_SIZE // 2
+                center_y = sy + TILE_SIZE // 2
+                radius = TILE_SIZE // 3
 
             is_sleeping = monster.state == "sleeping"
             is_returning = monster.state == "returning"
 
             # Determine draw target surface and alpha
-            if is_sleeping:
+            if is_multi:
+                tile_span = monster.size * TILE_SIZE
+                if is_sleeping:
+                    surf = pygame.Surface((tile_span, tile_span), pygame.SRCALPHA)
+                    surf.set_alpha(140)
+                    lcx, lcy = tile_span // 2, tile_span // 2
+                elif is_returning:
+                    surf = pygame.Surface((tile_span, tile_span), pygame.SRCALPHA)
+                    surf.set_alpha(180)
+                    lcx, lcy = tile_span // 2, tile_span // 2
+                else:
+                    surf = self.screen
+                    lcx, lcy = center_x, center_y
+            elif is_sleeping:
                 surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
                 surf.set_alpha(140)
                 lcx, lcy = TILE_SIZE // 2, TILE_SIZE // 2
@@ -312,10 +359,17 @@ class Renderer:
                     pygame.draw.circle(self.screen, COLOR_INK_LIGHT, (ax, ay), 2)
 
             # Health bar (bigger with shadow and HP text)
-            bar_w = TILE_SIZE - 10
-            bar_h = 5
-            bar_x = sx + 5
-            bar_y = sy + 1
+            if is_multi:
+                tile_span = monster.size * TILE_SIZE
+                bar_w = tile_span - 10
+                bar_h = 7
+                bar_x = sx + 5
+                bar_y = sy + 1
+            else:
+                bar_w = TILE_SIZE - 10
+                bar_h = 5
+                bar_x = sx + 5
+                bar_y = sy + 1
             # Dark shadow behind bar
             pygame.draw.rect(self.screen, (20, 18, 15),
                              pygame.Rect(bar_x, bar_y, bar_w + 1, bar_h + 1))
@@ -333,7 +387,11 @@ class Renderer:
 
             # Damage flash overlay
             if monster.damage_flash > 0:
-                flash_surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+                if is_multi:
+                    tile_span = monster.size * TILE_SIZE
+                    flash_surf = pygame.Surface((tile_span, tile_span), pygame.SRCALPHA)
+                else:
+                    flash_surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
                 flash_alpha = min(180, monster.damage_flash * 18)
                 flash_surf.fill((255, 255, 255, flash_alpha))
                 self.screen.blit(flash_surf, (sx, sy))
@@ -437,41 +495,59 @@ class Renderer:
                          (lcx + 5, tusk_y - 5), 2)
 
     def _draw_boss(self, surf, lcx, lcy, radius, monster, is_sleeping):
-        """Imposing boss with crown and fangs."""
-        big_r = int(TILE_SIZE / 2.5)
+        """Imposing 2x2 boss with prominent crown, horns, and glowing eyes."""
+        big_r = radius
+        # Dark aura circle behind
+        pygame.draw.circle(surf, (60, 10, 60), (lcx, lcy), big_r + 4)
         # Body
         pygame.draw.circle(surf, monster.color, (lcx, lcy), big_r)
-        pygame.draw.circle(surf, COLOR_INK, (lcx, lcy), big_r, 2)
-        # Crown: 3 pointed triangles
-        crown_base = lcy - big_r
-        for dx in [-7, 0, 7]:
+        pygame.draw.circle(surf, COLOR_INK, (lcx, lcy), big_r, 3)
+
+        # Armor lines on body
+        for i in range(-2, 3):
+            y = lcy + i * 8
+            pygame.draw.line(surf, (120, 20, 120),
+                             (lcx - big_r // 2, y), (lcx + big_r // 2, y), 1)
+
+        # Crown: golden band with 5 points
+        crown_base = lcy - big_r - 2
+        crown_w = big_r + 6
+        # Crown base band
+        pygame.draw.rect(surf, (255, 215, 0),
+                         pygame.Rect(lcx - crown_w // 2, crown_base, crown_w, 6))
+        pygame.draw.rect(surf, COLOR_INK,
+                         pygame.Rect(lcx - crown_w // 2, crown_base, crown_w, 6), 1)
+        # Crown points (5 tall spikes)
+        for i in range(5):
+            px = lcx - crown_w // 2 + int(crown_w * i / 4)
+            h = 14 if i % 2 == 0 else 10
             pygame.draw.polygon(surf, (255, 215, 0),
-                                [(lcx + dx - 3, crown_base + 2),
-                                 (lcx + dx, crown_base - 8),
-                                 (lcx + dx + 3, crown_base + 2)])
+                                [(px - 4, crown_base),
+                                 (px, crown_base - h),
+                                 (px + 4, crown_base)])
             pygame.draw.polygon(surf, COLOR_INK,
-                                [(lcx + dx - 3, crown_base + 2),
-                                 (lcx + dx, crown_base - 8),
-                                 (lcx + dx + 3, crown_base + 2)], 1)
+                                [(px - 4, crown_base),
+                                 (px, crown_base - h),
+                                 (px + 4, crown_base)], 1)
+            # Jewel on tall points
+            if i % 2 == 0:
+                pygame.draw.circle(surf, (220, 30, 30), (px, crown_base - h + 4), 2)
+
         if is_sleeping:
             self._draw_sleeping_eyes(surf, lcx, lcy)
         else:
-            # Glowing eyes (filled with boss color, brighter)
-            eye_color = (min(255, monster.color[0] + 60),
-                         min(255, monster.color[1] + 60),
-                         min(255, monster.color[2] + 60))
-            pygame.draw.circle(surf, eye_color, (lcx - 6, lcy - 3), 3)
-            pygame.draw.circle(surf, COLOR_INK, (lcx - 6, lcy - 3), 3, 1)
-            pygame.draw.circle(surf, eye_color, (lcx + 6, lcy - 3), 3)
-            pygame.draw.circle(surf, COLOR_INK, (lcx + 6, lcy - 3), 3, 1)
-            # Larger fangs
-            pygame.draw.line(surf, (240, 230, 210),
-                             (lcx - 4, lcy + 5), (lcx - 5, lcy + 10), 2)
-            pygame.draw.line(surf, (240, 230, 210),
-                             (lcx + 4, lcy + 5), (lcx + 5, lcy + 10), 2)
-            # Mouth line
-            pygame.draw.line(surf, COLOR_INK,
-                             (lcx - 6, lcy + 5), (lcx + 6, lcy + 5), 1)
+            # Glowing red eyes
+            for ex in [-10, 10]:
+                pygame.draw.circle(surf, (255, 60, 60), (lcx + ex, lcy - 6), 5)
+                pygame.draw.circle(surf, (255, 200, 200), (lcx + ex, lcy - 6), 2)
+                pygame.draw.circle(surf, COLOR_INK, (lcx + ex, lcy - 6), 5, 1)
+            # Fangs
+            for fx in [-7, 7]:
+                pygame.draw.line(surf, (240, 230, 210),
+                                 (lcx + fx, lcy + 8), (lcx + fx + (1 if fx > 0 else -1), lcy + 16), 3)
+            # Mouth
+            pygame.draw.arc(surf, COLOR_INK,
+                            pygame.Rect(lcx - 12, lcy + 2, 24, 14), 3.5, 6.0, 2)
 
     def _draw_bat(self, surf, lcx, lcy, radius, monster, is_sleeping):
         """Wings spread bat."""
@@ -790,6 +866,12 @@ class Renderer:
                                random.randint(8, 20)) for _ in range(12)]
         elif anim_event["type"] == "level_up":
             anim["max_frames"] = 30
+        elif anim_event["type"] == "fireball":
+            anim["max_frames"] = 24
+        elif anim_event["type"] == "trap_trigger":
+            anim["max_frames"] = 20
+            anim["splats"] = [(random.uniform(-1, 1), random.uniform(-1, 1),
+                               random.randint(6, 15)) for _ in range(8)]
         self.animations.append(anim)
 
     def _draw_animations(self):
@@ -810,9 +892,13 @@ class Renderer:
                 self._draw_death_animation(cx, cy, t, anim)
             elif anim["type"] == "level_up":
                 self._draw_level_up_animation(cx, cy, t, anim)
+            elif anim["type"] == "fireball":
+                self._draw_fireball_animation(cx, cy, t, anim)
+            elif anim["type"] == "trap_trigger":
+                self._draw_trap_trigger_animation(cx, cy, t, anim)
 
             # Floating damage number (shared by slash and claw)
-            if anim["type"] in ("player_slash", "monster_claw") and anim["damage"] > 0:
+            if anim["type"] in ("player_slash", "monster_claw", "fireball", "trap_trigger") and anim["damage"] > 0:
                 self._draw_damage_number(cx, cy, t, anim)
 
             if anim["frame"] < anim["max_frames"]:
@@ -987,6 +1073,106 @@ class Renderer:
                               tcy - txt2.get_height() // 2))
 
         self.screen.blit(text_surf, (cx - 40, float_y - 25))
+
+    def _draw_fireball_animation(self, cx, cy, t, anim):
+        """Fireball explosion — expanding fire ring with flame particles."""
+        size = TILE_SIZE * 2.5
+        surf = pygame.Surface((int(size), int(size)), pygame.SRCALPHA)
+        scx, scy = int(size // 2), int(size // 2)
+        alpha = int(255 * (1.0 - t))
+
+        # Expanding fire ring
+        ring_r = int(10 + t * size * 0.35)
+        ring_w = max(1, int(4 * (1.0 - t)))
+        pygame.draw.circle(surf, (255, 120, 30, alpha), (scx, scy), ring_r, ring_w)
+
+        # Inner glow
+        if t < 0.5:
+            glow_r = int(ring_r * 0.6)
+            glow_alpha = int(150 * (1.0 - t * 2))
+            pygame.draw.circle(surf, (255, 200, 80, glow_alpha), (scx, scy), glow_r)
+
+        # Flame particles
+        wobble = anim.get("wobble", [(0, 0)] * 16)
+        for i in range(8):
+            angle = i * (math.pi / 4) + t * 2
+            r = ring_r * 0.8
+            wx, wy = wobble[i % len(wobble)]
+            px = scx + int(math.cos(angle) * r) + wx
+            py = scy + int(math.sin(angle) * r) + wy
+            flame_alpha = int(200 * (1.0 - t))
+            pygame.draw.circle(surf, (255, 80, 20, flame_alpha), (px, py), 3)
+
+        blit_x = cx - int(size // 2)
+        blit_y = cy - int(size // 2)
+        self.screen.blit(surf, (blit_x, blit_y))
+
+    def _draw_trap_trigger_animation(self, cx, cy, t, anim):
+        """Trap trigger — green-brown flash with splatter."""
+        size = TILE_SIZE * 2.0
+        surf = pygame.Surface((int(size), int(size)), pygame.SRCALPHA)
+        scx, scy = int(size // 2), int(size // 2)
+        alpha = int(220 * (1.0 - t))
+
+        # Expanding ring (green-brown)
+        ring_r = int(8 + t * size * 0.3)
+        ring_w = max(1, int(3 * (1.0 - t)))
+        pygame.draw.circle(surf, (100, 160, 60, alpha), (scx, scy), ring_r, ring_w)
+
+        # Splatter particles
+        for dx, dy, max_dist in anim.get("splats", []):
+            dist = t * max_dist * 2.5
+            p_alpha = int(200 * (1.0 - t))
+            px = scx + int(dx * dist)
+            py = scy + int(dy * dist)
+            blob_r = max(1, int(2 * (1.0 - t * 0.5)))
+            pygame.draw.circle(surf, (80, 120, 40, p_alpha), (px, py), blob_r)
+
+        # Central flash
+        if t < 0.3:
+            flash_alpha = int(180 * (1.0 - t / 0.3))
+            pygame.draw.circle(surf, (200, 180, 80, flash_alpha), (scx, scy), int(8 * (1.0 - t)))
+
+        blit_x = cx - int(size // 2)
+        blit_y = cy - int(size // 2)
+        self.screen.blit(surf, (blit_x, blit_y))
+
+    def _draw_torch_glow(self, players):
+        """Draw torch glow effect around alive players."""
+        glow_radius = TILE_SIZE * 3
+        for player in players:
+            if not player.is_alive():
+                continue
+            sx, sy = self.camera.world_to_screen(player.world_row, player.world_col)
+            cx = sx + TILE_SIZE // 2
+            cy = sy + TILE_SIZE // 2
+
+            glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+            for r in range(glow_radius, 0, -4):
+                a = int(25 * (r / glow_radius))
+                color = (255, 180, 80, a)
+                pygame.draw.circle(glow_surf, color, (glow_radius, glow_radius), r)
+
+            flicker = int(math.sin(self.frame_count * 0.1 + player.player_id * 2.0) * 8)
+            self.screen.blit(glow_surf, (cx - glow_radius + flicker, cy - glow_radius))
+
+    def _draw_traps(self, game_logic):
+        """Draw placed traps on the map."""
+        if not hasattr(game_logic, 'traps'):
+            return
+        for trap in game_logic.traps:
+            sx, sy = self.camera.world_to_screen(trap["row"], trap["col"])
+            trap_cx, trap_cy = sx + TILE_SIZE // 2, sy + TILE_SIZE // 2
+            # Small jagged circle (bear trap look)
+            pygame.draw.circle(self.screen, COLOR_INK_LIGHT, (trap_cx, trap_cy), 8, 1)
+            # Teeth
+            for angle_off in range(0, 360, 45):
+                a = math.radians(angle_off)
+                x1 = trap_cx + int(math.cos(a) * 8)
+                y1 = trap_cy + int(math.sin(a) * 8)
+                x2 = trap_cx + int(math.cos(a) * 12)
+                y2 = trap_cy + int(math.sin(a) * 12)
+                pygame.draw.line(self.screen, COLOR_INK_LIGHT, (x1, y1), (x2, y2), 1)
 
     def _draw_level_up_animation(self, cx, cy, t, anim):
         """Golden ring expanding outward with LEVEL UP text floating up."""
@@ -1357,6 +1543,78 @@ class Renderer:
         buttons.append((rect, "skip"))
 
         return buttons
+
+    def render_skill_buttons(self, game_logic):
+        """Render skill buttons in the HUD and return clickable rects."""
+        buttons = []
+        player = game_logic.get_current_player()
+        if not player or not game_logic.is_player_phase:
+            return buttons
+
+        panel_y = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
+
+        for i, skill in enumerate(player.skills):
+            btn_x = SCREEN_WIDTH - 220 + i * 105
+            btn_y = panel_y + 65
+            btn_w = 100
+            btn_h = 55
+
+            rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+            mouse_pos = pygame.mouse.get_pos()
+
+            can_use = player.can_use_skill(i)
+
+            # Button background
+            if not can_use:
+                bg = (180, 170, 150)
+            elif rect.collidepoint(mouse_pos):
+                bg = COLOR_PARCHMENT_DARK
+            else:
+                bg = COLOR_PARCHMENT
+
+            pygame.draw.rect(self.screen, bg, rect, border_radius=4)
+            pygame.draw.rect(self.screen, COLOR_INK, rect, 2, border_radius=4)
+
+            # Key binding
+            key_text = self.font_small.render(f"[{skill['key']}]", True, COLOR_INK_LIGHT)
+            self.screen.blit(key_text, (btn_x + 3, btn_y + 3))
+
+            # Skill name (truncated)
+            name = skill["name"]
+            if len(name) > 12:
+                name = name[:11] + "."
+            name_text = self.font_small.render(name, True, COLOR_INK)
+            self.screen.blit(name_text, (btn_x + btn_w // 2 - name_text.get_width() // 2,
+                                         btn_y + 18))
+
+            # AP cost
+            ap_text = self.font_small.render(f"{skill['ap_cost']} AP", True, COLOR_INK_LIGHT)
+            self.screen.blit(ap_text, (btn_x + btn_w // 2 - ap_text.get_width() // 2,
+                                       btn_y + 35))
+
+            # Cooldown overlay
+            cd = player.skill_cooldowns[i]
+            if cd > 0:
+                cd_surf = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+                cd_surf.fill((0, 0, 0, 120))
+                self.screen.blit(cd_surf, (btn_x, btn_y))
+                cd_text = self.font_medium.render(str(cd), True, (255, 200, 80))
+                self.screen.blit(cd_text, (btn_x + btn_w // 2 - cd_text.get_width() // 2,
+                                           btn_y + btn_h // 2 - cd_text.get_height() // 2))
+
+            buttons.append((rect, f"skill_{i}"))
+
+        return buttons
+
+    def draw_skill_hint(self, text):
+        """Draw skill targeting hint at top of screen."""
+        hint_surf = self.font_medium.render(text, True, (255, 220, 100))
+        bg_rect = pygame.Rect(SCREEN_WIDTH // 2 - hint_surf.get_width() // 2 - 10,
+                              8, hint_surf.get_width() + 20, hint_surf.get_height() + 8)
+        bg = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg.fill((35, 30, 25, 180))
+        self.screen.blit(bg, bg_rect)
+        self.screen.blit(hint_surf, (bg_rect.x + 10, bg_rect.y + 4))
 
     def render_menu(self):
         """Render main menu."""

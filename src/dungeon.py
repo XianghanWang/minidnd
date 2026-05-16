@@ -99,12 +99,17 @@ class DungeonCard:
         self.tiles[CARD_ROWS // 2][0] = TILE_ROAD
         self.tiles[CARD_ROWS // 2][CARD_COLS - 1] = TILE_ROAD
 
-        # Place boss in center
-        self.monsters.append((CARD_ROWS // 2, CARD_COLS // 2, "Boss"))
+        # Place boss in center-ish (2x2, so top-left corner at center-1)
+        boss_r = CARD_ROWS // 2 - 1  # row 1
+        boss_c = CARD_COLS // 2 - 1  # col 2
+        self.monsters.append((boss_r, boss_c, "Boss"))
 
-        # Place some guard monsters
-        guards = [(1, 2), (1, 4), (3, 2), (3, 4)]
+        # Place guard monsters away from boss 2x2 area
+        guards = [(1, 1), (1, 5), (3, 1), (3, 5)]
         for r, c in guards:
+            # Skip if overlapping boss tiles
+            if boss_r <= r < boss_r + 2 and boss_c <= c < boss_c + 2:
+                continue
             monster_type = random.choice(["Spider", "Skeleton", "Orc", "Wraith"])
             self.monsters.append((r, c, monster_type))
 
