@@ -240,8 +240,8 @@ class DungeonDeck:
         self.boss_drawn = True
         self.cards_drawn += 1
 
-        total_rows = BOSS_GRID_ROWS * CARD_ROWS  # 15
-        total_cols = BOSS_GRID_COLS * CARD_COLS   # 21
+        total_rows = BOSS_GRID_ROWS * CARD_ROWS  # 21 (vertical cards)
+        total_cols = BOSS_GRID_COLS * CARD_COLS   # 15
 
         # Build full boss room tile grid
         grid = [[TILE_WALL] * total_cols for _ in range(total_rows)]
@@ -251,66 +251,75 @@ class DungeonDeck:
             for c in range(1, total_cols - 1):
                 grid[r][c] = TILE_ROAD
 
-        # --- Complex layout features ---
+        center_r, center_c = total_rows // 2, total_cols // 2
+
+        # --- Complex layout features (all positions relative to grid size) ---
 
         # 4 stone pillars (2x2 wall blocks) for cover
+        pr_off = total_rows // 4       # ~5 for 21 rows
+        pc_off = total_cols // 4       # ~3 for 15 cols
         pillar_positions = [
-            (4, 6), (4, 13),   # upper pillars
-            (10, 6), (10, 13),  # lower pillars
+            (center_r - pr_off, center_c - pc_off),
+            (center_r - pr_off, center_c + pc_off - 1),
+            (center_r + pr_off - 1, center_c - pc_off),
+            (center_r + pr_off - 1, center_c + pc_off - 1),
         ]
         for pr, pc in pillar_positions:
             for dr in range(2):
                 for dc in range(2):
-                    if 0 <= pr + dr < total_rows and 0 <= pc + dc < total_cols:
+                    if 1 <= pr + dr < total_rows - 1 and 1 <= pc + dc < total_cols - 1:
                         grid[pr + dr][pc + dc] = TILE_WALL
 
-        # Corner alcoves (small rooms with chests)
-        alcoves = [
-            (1, 1, 3, 3),      # top-left
-            (1, 17, 3, 3),     # top-right
-            (11, 1, 3, 3),     # bottom-left
-            (11, 17, 3, 3),    # bottom-right
-        ]
+        # Corner alcoves with chests (2x2 rooms in each corner)
+        alcove_size = 2
         chest_positions = []
-        for ar, ac, ah, aw in alcoves:
-            # Partial wall around alcove (leave opening)
-            for c in range(ac, ac + aw):
-                if 0 <= ar + ah < total_rows and 0 <= c < total_cols:
-                    grid[ar + ah][c] = TILE_WALL  # bottom/top wall of alcove
-            for r in range(ar, ar + ah):
-                edge_c = ac + aw if ac < total_cols // 2 else ac - 1
-                if 0 <= r < total_rows and 0 <= edge_c < total_cols:
-                    grid[r][edge_c] = TILE_WALL
-            # Opening in the wall
-            open_r = ar + ah // 2
-            open_c = ac + aw if ac < total_cols // 2 else ac - 1
-            if 0 <= open_r < total_rows and 0 <= open_c < total_cols:
-                grid[open_r][open_c] = TILE_ROAD
-            # Chest inside
-            chest_r = ar + 1
-            chest_c = ac + 1
+        alcove_corners = [
+            (1, 1),                                        # top-left
+            (1, total_cols - 1 - alcove_size),             # top-right
+            (total_rows - 1 - alcove_size, 1),             # bottom-left
+            (total_rows - 1 - alcove_size, total_cols - 1 - alcove_size),  # bottom-right
+        ]
+        for ar, ac in alcove_corners:
+            # Wall border around alcove
+            wall_r = ar + alcove_size
+            wall_c = ac + alcove_size if ac < center_c else ac - 1
+            for c in range(ac, ac + alcove_size + 1):
+                if 0 <= wall_r < total_rows and 0 <= c < total_cols:
+                    grid[wall_r][c] = TILE_WALL
+            for r in range(ar, ar + alcove_size + 1):
+                if 0 <= r < total_rows and 0 <= wall_c < total_cols:
+                    grid[r][wall_c] = TILE_WALL
+            # Opening
+            open_r = ar + alcove_size // 2
+            if 0 <= open_r < total_rows and 0 <= wall_c < total_cols:
+                grid[open_r][wall_c] = TILE_ROAD
+            # Chest
+            chest_r, chest_c = ar, ac
             if 0 <= chest_r < total_rows and 0 <= chest_c < total_cols:
                 grid[chest_r][chest_c] = TILE_CHEST
                 chest_positions.append((chest_r, chest_c))
 
-        # Center raised area border (ring of different floor around boss)
-        center_r, center_c = total_rows // 2, total_cols // 2
-        for dr in range(-3, 4):
-            for dc in range(-4, 5):
+        # Center ring (walls around boss area with cardinal openings)
+        ring_r = min(3, total_rows // 6)
+        ring_c = min(3, total_cols // 5)
+        for dr in range(-ring_r, ring_r + 1):
+            for dc in range(-ring_c, ring_c + 1):
                 r, c = center_r + dr, center_c + dc
-                if (abs(dr) == 3 or abs(dc) == 4) and 0 <= r < total_rows and 0 <= c < total_cols:
-                    if grid[r][c] == TILE_ROAD:
-                        # Leave openings at cardinal directions
-                        if not (dr == 0 or dc == 0):
-                            grid[r][c] = TILE_WALL
+                if (abs(dr) == ring_r or abs(dc) == ring_c):
+                    if 1 <= r < total_rows - 1 and 1 <= c < total_cols - 1:
+                        if grid[r][c] == TILE_ROAD:
+                            # Leave cardinal openings
+                            if not (dr == 0 or dc == 0):
+                                grid[r][c] = TILE_WALL
 
-        # Side corridors (narrow paths along edges for kiting)
-        # Already open from the main carve, but add wall bumps for cover
-        wall_bumps = [(3, 1), (7, 1), (11, 1),
-                      (3, total_cols - 2), (7, total_cols - 2), (11, total_cols - 2)]
-        for br, bc in wall_bumps:
-            if 0 <= br < total_rows and 0 <= bc < total_cols:
-                grid[br][bc] = TILE_WALL
+        # Wall bumps along sides for cover
+        bump_spacing = max(3, total_rows // 5)
+        for i in range(3):
+            br = 2 + i * bump_spacing
+            if 1 <= br < total_rows - 1:
+                grid[br][1] = TILE_WALL
+                if total_cols - 2 > 1:
+                    grid[br][total_cols - 2] = TILE_WALL
 
         # --- Entry door ---
         door_r, door_c = 0, 0
@@ -349,7 +358,6 @@ class DungeonDeck:
                     r = door_r + dr
                     if 0 <= r < total_rows and grid[r][c] == TILE_WALL:
                         grid[r][c] = TILE_ROAD
-        # Restore the door tile (may have been cleared)
         grid[door_r][door_c] = TILE_DOOR
 
         # --- Slice into 3x3 standard cards ---
@@ -360,7 +368,7 @@ class DungeonDeck:
                 card.card_id = self.cards_drawn
                 card.is_boss = True
                 card.is_first = False
-                card.is_boss_sub = True  # Prevent expansion
+                card.is_boss_sub = True
                 card.monsters = []
                 card.chests = []
                 card.tiles = []
@@ -369,7 +377,6 @@ class DungeonDeck:
                     for lc in range(CARD_COLS):
                         row.append(grid[gr * CARD_ROWS + lr][gc * CARD_COLS + lc])
                     card.tiles.append(row)
-                # Track chests
                 for cr, cc in chest_positions:
                     clr = cr - gr * CARD_ROWS
                     clc = cc - gc * CARD_COLS
@@ -377,19 +384,25 @@ class DungeonDeck:
                         card.chests.append((clr, clc))
                 cards[(gr, gc)] = card
 
-        # Monsters (placed in world-relative coords, converted to card-local)
-        boss_r = center_r - 1  # 2x2 boss top-left
+        # Monsters (formula-based positions)
+        boss_r = center_r - 1
         boss_c = center_c - 1
         monsters = [(boss_r, boss_c, "Boss")]
-        # Guard monsters in the arena
-        guard_positions = [
-            (3, 9), (3, 11),     # upper mid
-            (11, 9), (11, 11),   # lower mid
-            (7, 4), (7, 16),     # side guards
+        # Guard positions: offset from center, validated to be road
+        guard_offsets = [
+            (-pr_off, 0), (pr_off, 0),       # above/below
+            (0, -pc_off), (0, pc_off),        # left/right
+            (-pr_off + 1, pc_off), (pr_off - 1, -pc_off),  # diagonals
         ]
-        for gr_pos, gc_pos in guard_positions:
-            mtype = random.choice(["Skeleton", "Orc", "Wraith", "Spider"])
-            monsters.append((gr_pos, gc_pos, mtype))
+        for dr, dc in guard_offsets:
+            gr_pos = center_r + dr
+            gc_pos = center_c + dc
+            # Clamp and validate walkable
+            gr_pos = max(2, min(total_rows - 3, gr_pos))
+            gc_pos = max(2, min(total_cols - 3, gc_pos))
+            if grid[gr_pos][gc_pos] == TILE_ROAD:
+                mtype = random.choice(["Skeleton", "Orc", "Wraith", "Spider"])
+                monsters.append((gr_pos, gc_pos, mtype))
 
         # Convert monster positions to card-local
         for mr, mc, mtype in monsters:

@@ -781,21 +781,26 @@ class GameLogic:
 
             primary = self.world.get_monster_at(target_row, target_col)
 
+            # Level scaling
+            level_bonus = (player.level - 1) * skill.get("damage_per_level", 0)
+            total_damage = skill["damage"] + int(level_bonus)
+            splash_bonus = (player.level - 1) * skill.get("splash_per_level", 0)
+            splash_dmg = skill.get("splash_damage", 0) + int(splash_bonus)
+
             self.pending_animations.append({
                 "type": "fireball",
                 "world_row": target_row, "world_col": target_col,
-                "damage": skill["damage"],
+                "damage": total_damage,
             })
 
             if primary:
                 primary.wake_up()
-                primary.take_damage(skill["damage"])
-                self.log_message(f"Fireball hits {primary.monster_type} for {skill['damage']}!")
+                primary.take_damage(total_damage)
+                self.log_message(f"Fireball hits {primary.monster_type} for {total_damage}!")
                 if not primary.is_alive():
                     self._handle_monster_death(player, primary, target_row, target_col)
 
             splash_range = skill.get("splash_range", 1)
-            splash_dmg = skill.get("splash_damage", 0)
             for monster in self.world.get_alive_monsters():
                 if monster == primary:
                     continue
@@ -857,6 +862,30 @@ class GameLogic:
                 "damage": skill["damage"], "owner": player,
             })
             self.log_message(f"{player.character_type} placed a trap!")
+
+        elif effect == "teleport":
+            dist = abs(target_row - player.world_row) + abs(target_col - player.world_col)
+            if dist > skill["range"] or dist < 1:
+                player.action_points += skill["ap_cost"]
+                return False
+            if not self.world.is_walkable(target_row, target_col):
+                player.action_points += skill["ap_cost"]
+                return False
+            if self.world.get_monster_at(target_row, target_col):
+                player.action_points += skill["ap_cost"]
+                return False
+            # Check no other player on target
+            for p in self.players:
+                if p != player and p.is_alive() and p.world_row == target_row and p.world_col == target_col:
+                    player.action_points += skill["ap_cost"]
+                    return False
+            player.world_row = target_row
+            player.world_col = target_col
+            self.log_message(f"{player.character_type} teleports!")
+            self.pending_animations.append({
+                "type": "level_up",
+                "world_row": target_row, "world_col": target_col,
+            })
 
         # Set cooldown
         player.skill_cooldowns[skill_index] = skill["cooldown"]

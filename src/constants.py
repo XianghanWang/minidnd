@@ -10,10 +10,10 @@ TITLE = "Mini Dungeon"
 TILE_SIZE = 48
 
 # Dungeon card dimensions (in tiles)
-CARD_COLS = 7
-CARD_ROWS = 5
+CARD_COLS = 5
+CARD_ROWS = 7
 
-# Boss room spans 3x3 card grid = 15 rows x 21 cols
+# Boss room spans 3x3 card grid = 21 rows x 15 cols
 BOSS_GRID_ROWS = 3
 BOSS_GRID_COLS = 3
 

@@ -212,7 +212,33 @@ class WorldMap:
             for local_r, local_c, monster_type in card.monsters:
                 world_r = world_card_r * CARD_ROWS + local_r
                 world_c = world_card_c * CARD_COLS + local_c
-                self.monsters.append(Monster(monster_type, world_r, world_c, elite=True))
+                m = Monster(monster_type, world_r, world_c, elite=True)
+                self.monsters.append(m)
+
+        # Assign patrol waypoints to non-boss elite monsters
+        boss_origin_r = origin_r * CARD_ROWS
+        boss_origin_c = origin_c * CARD_COLS
+        total_rows = BOSS_GRID_ROWS * CARD_ROWS
+        total_cols = BOSS_GRID_COLS * CARD_COLS
+        qr = total_rows // 4  # quarter row
+        qc = total_cols // 4  # quarter col
+        # Patrol routes: formula-based pairs within the boss arena
+        patrol_routes = [
+            [(qr, 2), (qr, total_cols - 3)],          # upper horizontal
+            [(total_rows - qr, 2), (total_rows - qr, total_cols - 3)],  # lower horizontal
+            [(2, qc), (total_rows - 3, qc)],           # left vertical
+            [(2, total_cols - qc), (total_rows - 3, total_cols - qc)],  # right vertical
+            [(qr, total_cols // 2), (total_rows - qr, total_cols // 2)],  # center vertical
+            [(total_rows // 2, 2), (total_rows // 2, total_cols - 3)],    # center horizontal
+        ]
+        route_idx = 0
+        for m in self.monsters:
+            if m.elite and m.monster_type != "Boss" and not m.patrol_waypoints:
+                route = patrol_routes[route_idx % len(patrol_routes)]
+                m.patrol_waypoints = [
+                    (boss_origin_r + r, boss_origin_c + c) for r, c in route
+                ]
+                route_idx += 1
 
         # Calculate door world position
         door_world_r = (origin_r + door_card_gr) * CARD_ROWS + door_local_r

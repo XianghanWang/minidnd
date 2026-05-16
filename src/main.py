@@ -130,6 +130,8 @@ class Game:
             self._arm_skill(0)
         elif key == pygame.K_2 and self.state == STATE_PLAYING:
             self._arm_skill(1)
+        elif key == pygame.K_3 and self.state == STATE_PLAYING:
+            self._arm_skill(2)
 
     def _arm_skill(self, skill_index):
         """Arm a skill for targeting."""
@@ -316,14 +318,17 @@ class Game:
         self.players = []
 
         # Create players
-        # Place players at center of first card
+        # Place players at center of first card, spread vertically
         start_row = CARD_ROWS // 2
         start_col = CARD_COLS // 2
 
         for i, char_name in enumerate(self.selected_characters):
             player = Player(i, char_name)
-            player.world_row = start_row
-            player.world_col = start_col + i  # Offset each player
+            # Offset vertically to avoid going out of bounds
+            player.world_row = start_row - len(self.selected_characters) // 2 + i
+            player.world_col = start_col
+            # Clamp to card bounds
+            player.world_row = max(1, min(CARD_ROWS - 2, player.world_row))
             self.players.append(player)
 
         # Remove any monster at player start positions

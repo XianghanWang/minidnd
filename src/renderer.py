@@ -341,6 +341,9 @@ class Renderer:
         # Ambient dust particles (screen-space, drawn last before HUD for atmosphere)
         self._update_and_draw_dust()
 
+        # Tooltips (drawn last, on top of everything)
+        self._draw_tooltips(world, players, game_logic)
+
     def _draw_tiles(self, world):
         """Draw visible dungeon tiles using pre-rendered textures."""
         # Calculate visible range
@@ -2074,10 +2077,11 @@ class Renderer:
         panel_y = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
 
         for i, skill in enumerate(player.skills):
-            btn_x = SCREEN_WIDTH - 220 + i * 105
-            btn_y = panel_y + 65
-            btn_w = 100
+            btn_w = 95
             btn_h = 55
+            total_w = len(player.skills) * (btn_w + 5) - 5
+            btn_x = SCREEN_WIDTH - total_w - 10 + i * (btn_w + 5)
+            btn_y = panel_y + 65
 
             rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
             mouse_pos = pygame.mouse.get_pos()
@@ -2474,3 +2478,167 @@ class Renderer:
         buttons.append((rect, "menu"))
 
         return buttons
+
+    # --- Tooltip system ---
+
+    def _draw_tooltips(self, world, players, game_logic):
+        """Draw tooltip when hovering over monsters, players, or skill buttons."""
+        mouse_pos = pygame.mouse.get_pos()
+        mx, my = mouse_pos
+
+        # Don't show tooltips during monster phase
+        if game_logic.is_monster_phase:
+            return
+
+        # Check HUD area (skill buttons)
+        if my >= SCREEN_HEIGHT - HUD_PANEL_HEIGHT:
+            self._draw_hud_tooltip(mx, my, players, game_logic)
+            return
+
+        # Convert to world coordinates
+        world_row, world_col = self.camera.screen_to_world(mx, my)
+
+        # Check monsters
+        for monster in world.get_alive_monsters():
+            if monster.size > 1:
+                if (monster.world_row <= world_row < monster.world_row + monster.size and
+                        monster.world_col <= world_col < monster.world_col + monster.size):
+                    self._draw_monster_tooltip(monster, mx, my)
+                    return
+            elif monster.world_row == world_row and monster.world_col == world_col:
+                self._draw_monster_tooltip(monster, mx, my)
+                return
+
+        # Check players
+        for player in players:
+            if player.is_alive() and player.world_row == world_row and player.world_col == world_col:
+                self._draw_player_tooltip(player, mx, my)
+                return
+
+    def _draw_tooltip_card(self, mx, my, lines):
+        """Draw a small parchment tooltip card near the mouse."""
+        if not lines:
+            return
+
+        padding = 8
+        line_height = 18
+        max_w = 0
+        rendered = []
+        for text, color in lines:
+            surf = self.font_small.render(text, True, color)
+            rendered.append(surf)
+            if surf.get_width() > max_w:
+                max_w = surf.get_width()
+
+        card_w = max_w + padding * 2
+        card_h = len(rendered) * line_height + padding * 2
+
+        # Position: offset from mouse, keep on screen
+        tx = mx + 16
+        ty = my - card_h - 4
+        if tx + card_w > SCREEN_WIDTH:
+            tx = mx - card_w - 8
+        if ty < 0:
+            ty = my + 20
+
+        rect = pygame.Rect(tx, ty, card_w, card_h)
+        # Shadow
+        shadow_surf = pygame.Surface((card_w + 2, card_h + 2), pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, (20, 15, 10, 120),
+                         pygame.Rect(0, 0, card_w + 2, card_h + 2), border_radius=4)
+        self.screen.blit(shadow_surf, (tx + 2, ty + 2))
+        # Fill
+        pygame.draw.rect(self.screen, COLOR_CARD_FILL, rect, border_radius=4)
+        pygame.draw.rect(self.screen, COLOR_INK, rect, 1, border_radius=4)
+
+        for i, surf in enumerate(rendered):
+            self.screen.blit(surf, (tx + padding, ty + padding + i * line_height))
+
+    def _draw_monster_tooltip(self, monster, mx, my):
+        """Tooltip for a monster."""
+        name = monster.monster_type
+        if monster.elite:
+            name = "★ " + name + " (Elite)"
+
+        state_names = {
+            "sleeping": "Sleeping",
+            "chasing": "Aggressive",
+            "returning": "Returning",
+            "patrolling": "Patrolling",
+        }
+        state_text = state_names.get(monster.state, monster.state)
+
+        lines = [
+            (name, COLOR_INK),
+            (f"HP: {monster.health}/{monster.max_health}", (180, 50, 50)),
+            (f"ATK: {monster.attack}  SPD: {monster.speed}", COLOR_INK),
+            (f"State: {state_text}", COLOR_INK_LIGHT),
+        ]
+        if monster.attack_range > 1:
+            lines.append((f"Range: {monster.attack_range}", COLOR_INK_LIGHT))
+
+        self._draw_tooltip_card(mx, my, lines)
+
+    def _draw_player_tooltip(self, player, mx, my):
+        """Tooltip for a player."""
+        lines = [
+            (f"{player.character_type} (Lv{player.level})", player.color),
+            (f"HP: {player.health}/{player.max_health}", (180, 50, 50)),
+            (f"ATK: {player.attack}  AP: {player.action_points}/{player.max_action_points}",
+             COLOR_INK),
+            (f"SPD: {player.speed}  Range: {player.attack_range}", COLOR_INK_LIGHT),
+        ]
+        if player.weapon:
+            lines.append((f"Weapon: {player.weapon['name']}", (100, 80, 40)))
+        for i, skill in enumerate(player.skills):
+            cd = player.skill_cooldowns[i]
+            cd_text = " (Ready)" if cd == 0 else f" (CD: {cd})"
+            lines.append((f"  {skill['name']}{cd_text}", COLOR_INK_LIGHT))
+
+        self._draw_tooltip_card(mx, my, lines)
+
+    def _draw_hud_tooltip(self, mx, my, players, game_logic):
+        """Tooltip for skill buttons in the HUD."""
+        current_player = game_logic.get_current_player()
+        if not current_player or not game_logic.is_player_phase:
+            return
+
+        skills = current_player.skills
+        if not skills:
+            return
+
+        panel_y = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
+        btn_w = 95
+        btn_h = 55
+        total_w = len(skills) * (btn_w + 5) - 5
+
+        for i, skill in enumerate(skills):
+            btn_x = SCREEN_WIDTH - total_w - 10 + i * (btn_w + 5)
+            btn_y = panel_y + 65
+            btn_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+            if btn_rect.collidepoint(mx, my):
+                cd = current_player.skill_cooldowns[i]
+                lines = [
+                    (skill["name"], COLOR_INK),
+                    (f"AP Cost: {skill.get('ap_cost', 1)}", COLOR_INK_LIGHT),
+                    (f"Range: {skill.get('range', 1)}", COLOR_INK_LIGHT),
+                    (f"Cooldown: {skill.get('cooldown', 0)} turns", COLOR_INK_LIGHT),
+                ]
+                effect = skill.get("effect", "damage")
+                if effect == "damage":
+                    lines.append((f"Damage: {skill.get('damage', 0)}", (180, 50, 50)))
+                elif effect == "buff":
+                    lines.append((f"Buff: +{skill.get('amount', 0)} ATK for {skill.get('duration', 0)}t", (50, 130, 50)))
+                elif effect == "heal":
+                    lines.append((f"Heal: {skill.get('amount', 0)} HP", (50, 150, 50)))
+                elif effect == "teleport":
+                    lines.append(("Teleport to target tile", (80, 80, 180)))
+                if skill.get("aoe"):
+                    lines.append((f"AoE: {skill['aoe']} radius", (180, 120, 40)))
+                if cd > 0:
+                    lines.append((f"On cooldown: {cd} turns left", (180, 50, 50)))
+                else:
+                    lines.append(("Ready to use!", (50, 130, 50)))
+
+                self._draw_tooltip_card(mx, my, lines)
+                return
