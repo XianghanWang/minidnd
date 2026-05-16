@@ -523,7 +523,7 @@ class Renderer:
                         world.get_tile(row, col + 1) != TILE_WALL):
                     self.screen.blit(self._wall_shadow_cache["tr"], (sx, sy))
 
-        # Draw card borders (physical card look with shadow + cream edge)
+        # Draw card borders (weathered board game card look)
         for (card_row, card_col) in world.cards:
             sx, sy = self.camera.world_to_screen(
                 card_row * CARD_ROWS, card_col * CARD_COLS)
@@ -535,14 +535,82 @@ class Renderer:
                              pygame.Rect(4, 4, card_w, card_h),
                              border_radius=4)
             self.screen.blit(shadow_surf, (sx - 2, sy - 2))
-            # Cream card edge (border only, not filled)
+            # Cream card edge (border only)
             edge_rect = pygame.Rect(sx - 3, sy - 3, card_w + 6, card_h + 6)
             pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect, 3,
                              border_radius=5)
-            # Inner ink border
+            # Inner ink border (thicker, worn look)
             border_rect = pygame.Rect(sx, sy, card_w, card_h)
             pygame.draw.rect(self.screen, COLOR_INK, border_rect, 2)
-            # Corner decoration dots (like card corner marks)
+
+            # Weathering effects (deterministic per card)
+            seed = card_row * 97 + card_col * 31
+            wrng = random.Random(seed)
+
+            # Worn edge scuffs (short lines along border edges)
+            for _ in range(8):
+                side = wrng.randint(0, 3)
+                if side == 0:  # top
+                    wx = sx + wrng.randint(8, card_w - 8)
+                    wy = sy - 1
+                    pygame.draw.line(self.screen, (160, 145, 120),
+                                     (wx, wy), (wx + wrng.randint(3, 10), wy), 1)
+                elif side == 1:  # bottom
+                    wx = sx + wrng.randint(8, card_w - 8)
+                    wy = sy + card_h
+                    pygame.draw.line(self.screen, (160, 145, 120),
+                                     (wx, wy), (wx + wrng.randint(3, 10), wy), 1)
+                elif side == 2:  # left
+                    wx = sx - 1
+                    wy = sy + wrng.randint(8, card_h - 8)
+                    pygame.draw.line(self.screen, (160, 145, 120),
+                                     (wx, wy), (wx, wy + wrng.randint(3, 8)), 1)
+                else:  # right
+                    wx = sx + card_w
+                    wy = sy + wrng.randint(8, card_h - 8)
+                    pygame.draw.line(self.screen, (160, 145, 120),
+                                     (wx, wy), (wx, wy + wrng.randint(3, 8)), 1)
+
+            # Dirt/coffee stain spots (semi-transparent dark circles)
+            stain_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            for _ in range(wrng.randint(3, 6)):
+                stx = wrng.randint(10, card_w - 10)
+                sty = wrng.randint(10, card_h - 10)
+                str_r = wrng.randint(6, 18)
+                alpha = wrng.randint(12, 30)
+                stain_c = wrng.choice([
+                    (80, 60, 40, alpha),      # brown stain
+                    (50, 45, 35, alpha),       # dark smudge
+                    (100, 80, 50, alpha - 5),  # coffee ring
+                ])
+                pygame.draw.circle(stain_surf, stain_c, (stx, sty), str_r)
+                # Inner lighter ring for coffee stain effect
+                if str_r > 8:
+                    pygame.draw.circle(stain_surf, (stain_c[0], stain_c[1],
+                                                     stain_c[2], alpha // 3),
+                                       (stx, sty), str_r - 3)
+            self.screen.blit(stain_surf, (sx, sy))
+
+            # Scratch marks (thin dark lines across the card)
+            for _ in range(wrng.randint(2, 4)):
+                scx1 = sx + wrng.randint(5, card_w - 5)
+                scy1 = sy + wrng.randint(5, card_h - 5)
+                scx2 = scx1 + wrng.randint(-20, 20)
+                scy2 = scy1 + wrng.randint(-15, 15)
+                scratch_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+                pygame.draw.line(scratch_surf, (60, 50, 40, 25),
+                                 (scx1 - sx, scy1 - sy),
+                                 (scx2 - sx, scy2 - sy), 1)
+                self.screen.blit(scratch_surf, (sx, sy))
+
+            # Corner wear (slightly rounded darker corners)
+            corner_surf = pygame.Surface((12, 12), pygame.SRCALPHA)
+            pygame.draw.circle(corner_surf, (100, 85, 65, 35), (0, 0), 10)
+            for cx, cy in [(sx, sy), (sx + card_w - 12, sy),
+                           (sx, sy + card_h - 12), (sx + card_w - 12, sy + card_h - 12)]:
+                self.screen.blit(corner_surf, (cx, cy))
+
+            # Corner decoration dots
             for cr, cc in [(sx + 4, sy + 4), (sx + card_w - 5, sy + 4),
                            (sx + 4, sy + card_h - 5), (sx + card_w - 5, sy + card_h - 5)]:
                 pygame.draw.circle(self.screen, COLOR_INK, (cr, cc), 2)

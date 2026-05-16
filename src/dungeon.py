@@ -150,7 +150,7 @@ class DungeonCard:
                     self.tiles[r][c] = TILE_ROAD
 
     def _place_doors(self):
-        """Place 0-2 doors on narrow passages."""
+        """Place 0-2 doors on narrow passages, never adjacent to each other."""
         door_candidates = []
         for r in range(1, CARD_ROWS - 1):
             for c in range(1, CARD_COLS - 1):
@@ -164,13 +164,27 @@ class DungeonCard:
                         door_candidates.append((r, c))
 
         num_doors = min(random.randint(0, 2), len(door_candidates))
-        if door_candidates and num_doors > 0:
-            chosen = random.sample(door_candidates, num_doors)
-            for r, c in chosen:
-                if random.random() < 0.3:
-                    self.tiles[r][c] = TILE_DOOR_LOCKED
-                else:
-                    self.tiles[r][c] = TILE_DOOR
+        if not door_candidates or num_doors == 0:
+            return
+
+        random.shuffle(door_candidates)
+        placed = []
+        for r, c in door_candidates:
+            if len(placed) >= num_doors:
+                break
+            # Ensure no door within 2 tiles of an already-placed door
+            too_close = False
+            for pr, pc in placed:
+                if abs(r - pr) + abs(c - pc) < 3:
+                    too_close = True
+                    break
+            if too_close:
+                continue
+            if random.random() < 0.3:
+                self.tiles[r][c] = TILE_DOOR_LOCKED
+            else:
+                self.tiles[r][c] = TILE_DOOR
+            placed.append((r, c))
 
     def _place_monsters(self):
         """Place 1-4 monsters on road tiles."""
