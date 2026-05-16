@@ -535,9 +535,9 @@ class Renderer:
                              pygame.Rect(4, 4, card_w, card_h),
                              border_radius=4)
             self.screen.blit(shadow_surf, (sx - 2, sy - 2))
-            # Cream card edge (visible border around the card)
+            # Cream card edge (border only, not filled)
             edge_rect = pygame.Rect(sx - 3, sy - 3, card_w + 6, card_h + 6)
-            pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect,
+            pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect, 3,
                              border_radius=5)
             # Inner ink border
             border_rect = pygame.Rect(sx, sy, card_w, card_h)
