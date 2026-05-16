@@ -1,0 +1,27 @@
+# Game Overview
+
+## Concept
+Mini Dungeon is a 2D top-down board game style dungeon crawler for desktop PC. Players explore procedurally generated dungeon cards, fight monsters, collect loot, and defeat the boss.
+
+## Platform
+- Desktop PC
+- Mouse click to operate
+- English version (designed for future locale expansion)
+
+## Game Modes
+- **Single Player**: One hero explores alone
+- **Multiplayer (2-4 players)**: Hot-seat cooperative play
+
+## Map Exploration
+- The first map is one dungeon card (7×11 tiles)
+- New cards appear ONLY when a player moves to a connection point at the card edge (center tile of each edge)
+- This creates a feeling of exploring the unknown dungeon
+
+## Win Condition
+- Defeat the Boss monster (appears on a special card after 20 cards drawn)
+
+## Lose Condition
+- ALL players reach 0 HP
+
+## Scaling
+- Every 5 rounds, all monsters get a random buff (+1 attack, +1 health, or +1 speed)
