@@ -165,6 +165,7 @@ class Monster:
     STATE_SLEEPING = "sleeping"
     STATE_CHASING = "chasing"
     STATE_RETURNING = "returning"
+    STATE_PATROLLING = "patrolling"
 
     def __init__(self, monster_type, world_row, world_col, elite=False):
         self.monster_type = monster_type
@@ -190,7 +191,7 @@ class Monster:
 
         # Boss room monsters: always aggressive, boosted stats
         if elite:
-            self.state = Monster.STATE_CHASING
+            self.state = Monster.STATE_PATROLLING
             self.attack = int(self.attack * 1.5)
             self.health = int(self.health * 1.5)
             self.max_health = self.health
@@ -202,6 +203,10 @@ class Monster:
         # Boss skills
         self.skills = SKILLS.get(monster_type, [])
         self.skill_cooldowns = [0] * len(self.skills)
+
+        # Patrol waypoints (list of (row, col) for elite monsters)
+        self.patrol_waypoints = []
+        self.patrol_index = 0
 
     def occupies_tile(self, row, col):
         """Check if this monster occupies the given tile."""

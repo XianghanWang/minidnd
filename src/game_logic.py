@@ -256,6 +256,10 @@ class GameLogic:
         elif player_in_territory:
             monster.state = "chasing"
             self._monster_chase(monster, player_in_territory)
+        elif monster.patrol_waypoints:
+            # Patrol between waypoints when idle
+            monster.state = "patrolling"
+            self._monster_patrol(monster)
         else:
             monster.state = "returning"
             self._monster_return_home(monster)
@@ -359,6 +363,36 @@ class GameLogic:
             monster.world_row = new_r
             monster.world_col = new_c
             self._check_trap(monster, new_r, new_c)
+            return
+
+    def _monster_patrol(self, monster):
+        """Move monster toward its next patrol waypoint."""
+        if not monster.patrol_waypoints:
+            return
+        target_r, target_c = monster.patrol_waypoints[monster.patrol_index]
+
+        # Reached waypoint? Advance to next
+        if monster.world_row == target_r and monster.world_col == target_c:
+            monster.patrol_index = ((monster.patrol_index + 1)
+                                    % len(monster.patrol_waypoints))
+            target_r, target_c = monster.patrol_waypoints[monster.patrol_index]
+
+        dr = target_r - monster.world_row
+        dc = target_c - monster.world_col
+
+        moves = []
+        if abs(dr) >= abs(dc):
+            moves = [(1 if dr > 0 else -1, 0), (0, 1 if dc > 0 else -1)]
+        else:
+            moves = [(0, 1 if dc > 0 else -1), (1 if dr > 0 else -1, 0)]
+
+        for move_r, move_c in moves:
+            new_r = monster.world_row + move_r
+            new_c = monster.world_col + move_c
+            if not self._can_monster_move_to(monster, new_r, new_c):
+                continue
+            monster.world_row = new_r
+            monster.world_col = new_c
             return
 
     def _can_monster_move_to(self, monster, new_r, new_c):

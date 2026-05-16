@@ -1674,204 +1674,308 @@ class Renderer:
         self.screen.blit(icon_surf, (sx - 24, sy - 24))
 
     def _draw_hud(self, players, game_logic):
-        """Draw the HUD panel styled as a board game card."""
+        """Draw the HUD as a Micro Dungeon character card at the bottom."""
         panel_y = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
         panel_rect = pygame.Rect(0, panel_y, SCREEN_WIDTH, HUD_PANEL_HEIGHT)
 
-        # Card-style drop shadow at top
-        shadow_h = 6
-        shadow_surf = pygame.Surface((SCREEN_WIDTH, shadow_h), pygame.SRCALPHA)
-        for i in range(shadow_h):
-            a = 60 * (shadow_h - i) // shadow_h
-            pygame.draw.line(shadow_surf, (20, 15, 10, a),
-                             (0, i), (SCREEN_WIDTH, i))
-        self.screen.blit(shadow_surf, (0, panel_y - shadow_h))
+        # Black table behind card
+        pygame.draw.rect(self.screen, COLOR_TABLE, panel_rect)
 
-        # Cream card edge strip
-        edge_rect = pygame.Rect(0, panel_y - 3, SCREEN_WIDTH, HUD_PANEL_HEIGHT + 3)
-        pygame.draw.rect(self.screen, COLOR_CARD_EDGE, edge_rect)
-
-        # Parchment background (main card body)
-        pygame.draw.rect(self.screen, COLOR_PARCHMENT, panel_rect)
-
-        # Cross-hatch shading along top 10px
-        for i in range(0, SCREEN_WIDTH + 10, 6):
-            pygame.draw.line(self.screen, COLOR_PARCHMENT_DARK,
-                             (i, panel_y), (i - 10, panel_y + 10), 1)
-
-        # Double ink border at top
-        pygame.draw.line(self.screen, COLOR_INK,
-                         (0, panel_y), (SCREEN_WIDTH, panel_y), 2)
-        pygame.draw.line(self.screen, COLOR_INK,
-                         (0, panel_y + 4), (SCREEN_WIDTH, panel_y + 4), 1)
-
-        # Corner scroll flourishes (arcs at top corners)
-        arc_size = 20
-        # Top-left flourish
-        pygame.draw.arc(self.screen, COLOR_INK,
-                        pygame.Rect(0, panel_y - 5, arc_size, arc_size),
-                        -0.5, 1.2, 2)
-        # Top-right flourish
-        pygame.draw.arc(self.screen, COLOR_INK,
-                        pygame.Rect(SCREEN_WIDTH - arc_size, panel_y - 5,
-                                    arc_size, arc_size),
-                        1.9, 3.6, 2)
-
-        # === LEFT SECTION: Player info ===
         player = game_logic.get_current_player()
-        if player:
-            y_base = panel_y + 12
+        if not player:
+            return
 
-            # Player name with level badge (underlined with ink)
-            name_str = f"P{player.player_id + 1} - {player.character_type}"
-            name_text = self.font_large.render(name_str, True, player.color)
-            self.screen.blit(name_text, (15, y_base))
-            name_w = name_text.get_width()
-            # Level badge
-            lv_str = f"Lv{player.level}"
-            lv_text = self.font_small.render(lv_str, True, COLOR_UI_HIGHLIGHT)
-            self.screen.blit(lv_text, (15 + name_w + 6, y_base + 8))
-            pygame.draw.line(self.screen, COLOR_INK,
-                             (15, y_base + name_text.get_height()),
-                             (15 + name_w, y_base + name_text.get_height()), 1)
+        # === Character card (left portion) ===
+        card_x = 10
+        card_y = panel_y + 6
+        card_w = 520
+        card_h = HUD_PANEL_HEIGHT - 12
 
-            # HP bar with heart prefix
-            hp_y = y_base + 38
-            # Heart symbol (drawn as small triangle + circle)
-            hx = 15
-            pygame.draw.polygon(self.screen, (200, 40, 40),
-                                [(hx + 6, hp_y + 12), (hx, hp_y + 5), (hx + 12, hp_y + 5)])
-            pygame.draw.circle(self.screen, (200, 40, 40), (hx + 3, hp_y + 4), 3)
-            pygame.draw.circle(self.screen, (200, 40, 40), (hx + 9, hp_y + 4), 3)
+        # Card shadow
+        shadow_surf = pygame.Surface((card_w + 8, card_h + 8), pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, (0, 0, 0, 120),
+                         pygame.Rect(4, 4, card_w, card_h), border_radius=3)
+        self.screen.blit(shadow_surf, (card_x - 2, card_y - 2))
 
-            bar_x = 32
-            bar_w = 200
-            bar_h = 16
-            # Bar shadow
-            pygame.draw.rect(self.screen, (40, 30, 30),
-                             pygame.Rect(bar_x + 1, hp_y + 1, bar_w, bar_h),
-                             border_radius=3)
-            # Bar background
-            pygame.draw.rect(self.screen, COLOR_HEALTH_BG,
-                             pygame.Rect(bar_x, hp_y, bar_w, bar_h),
-                             border_radius=3)
-            # Gradient bar fill
-            hp_ratio = player.health / player.max_health if player.max_health > 0 else 0
-            fill_w = int(bar_w * hp_ratio)
-            if fill_w > 0:
-                fill_surf = pygame.Surface((fill_w, bar_h), pygame.SRCALPHA)
-                for i in range(bar_h):
-                    t = i / bar_h
-                    r = int(100 + 100 * (1.0 - t * 0.5))
-                    g = int(30 + 20 * (1.0 - t))
-                    b = int(30 + 10 * (1.0 - t))
-                    pygame.draw.line(fill_surf, (r, g, b), (0, i), (fill_w, i))
-                # Top highlight
-                pygame.draw.line(fill_surf, (240, 100, 100), (1, 1), (fill_w - 1, 1), 1)
-                self.screen.blit(fill_surf, (bar_x, hp_y))
-            # Ink border
-            pygame.draw.rect(self.screen, COLOR_INK,
-                             pygame.Rect(bar_x, hp_y, bar_w, bar_h), 2,
-                             border_radius=3)
-            # HP text on bar
-            hp_str = f"{player.health}/{player.max_health}"
-            hp_text = self.font_small.render(hp_str, True, (255, 255, 255))
-            self.screen.blit(hp_text, (bar_x + bar_w // 2 - hp_text.get_width() // 2,
-                                       hp_y + 1))
+        # White card background
+        card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+        pygame.draw.rect(self.screen, COLOR_CARD_FILL, card_rect, border_radius=3)
+        pygame.draw.rect(self.screen, COLOR_INK, card_rect, 2, border_radius=3)
 
-            # XP bar (below HP bar, gradient purple)
-            xp_y = hp_y + bar_h + 3
-            xp_bar_h = 6
-            pygame.draw.rect(self.screen, (40, 35, 50),
-                             pygame.Rect(bar_x, xp_y, bar_w, xp_bar_h),
-                             border_radius=2)
-            xp_ratio = player.xp / player.xp_to_next if player.xp_to_next > 0 else 0
-            xp_fill = int(bar_w * xp_ratio)
-            if xp_fill > 0:
-                for i in range(xp_bar_h):
-                    t = i / xp_bar_h
-                    r = int(120 + 40 * (1.0 - t))
-                    g = int(80 + 30 * (1.0 - t))
-                    b = int(180 + 30 * (1.0 - t))
-                    pygame.draw.line(self.screen, (r, g, b),
-                                     (bar_x, xp_y + i), (bar_x + xp_fill, xp_y + i))
-            pygame.draw.rect(self.screen, COLOR_INK,
-                             pygame.Rect(bar_x, xp_y, bar_w, xp_bar_h), 1,
-                             border_radius=2)
-            xp_label = self.font_tiny.render(
-                f"XP {player.xp}/{player.xp_to_next}", True, COLOR_INK)
-            self.screen.blit(xp_label, (bar_x + bar_w + 4, xp_y))
+        # --- Character portrait area (left side of card) ---
+        portrait_x = card_x + 8
+        portrait_y = card_y + 24
+        portrait_w = 90
+        portrait_h = card_h - 32
+        # Portrait frame
+        portrait_rect = pygame.Rect(portrait_x, portrait_y, portrait_w, portrait_h)
+        pygame.draw.rect(self.screen, (250, 247, 238), portrait_rect)
+        pygame.draw.rect(self.screen, COLOR_INK, portrait_rect, 2)
 
-            # AP pips
-            ap_y = hp_y + 22
-            ap_label = self.font_small.render("AP", True, COLOR_INK)
-            self.screen.blit(ap_label, (15, ap_y))
-            for i in range(player.max_action_points):
-                pip_x = 38 + i * 40
-                pip_rect = pygame.Rect(pip_x, ap_y, 36, 16)
-                if i < player.action_points:
-                    pygame.draw.rect(self.screen, COLOR_AP_BAR, pip_rect)
-                else:
-                    pygame.draw.rect(self.screen, COLOR_PARCHMENT_DARK, pip_rect)
-                pygame.draw.rect(self.screen, COLOR_INK, pip_rect, 1)
+        # Draw character ink illustration
+        cx = portrait_x + portrait_w // 2
+        cy = portrait_y + portrait_h // 2
+        ctype = getattr(player, 'character_type', 'Warrior')
+        self._draw_character_portrait(cx, cy, ctype, portrait_w, portrait_h)
 
-            # Stats row with drawn icons
-            stat_y = ap_y + 22
-            stat_x = 15
+        # --- Character name (top of card, like a title) ---
+        name_str = f"{ctype}"
+        name_text = self.font_large.render(name_str, True, COLOR_INK)
+        self.screen.blit(name_text, (portrait_x + portrait_w + 10, card_y + 6))
+        # Underline
+        nw = name_text.get_width()
+        pygame.draw.line(self.screen, COLOR_INK,
+                         (portrait_x + portrait_w + 10, card_y + 6 + name_text.get_height()),
+                         (portrait_x + portrait_w + 10 + nw, card_y + 6 + name_text.get_height()), 1)
 
-            # Attack icon (small sword: two lines)
-            pygame.draw.line(self.screen, COLOR_INK,
-                             (stat_x, stat_y + 10), (stat_x + 10, stat_y), 2)
-            pygame.draw.line(self.screen, COLOR_INK,
-                             (stat_x + 7, stat_y + 2), (stat_x + 12, stat_y + 5), 1)
-            atk_text = self.font_small.render(f" {player.attack}", True, COLOR_INK)
-            self.screen.blit(atk_text, (stat_x + 12, stat_y))
-            stat_x += 45
+        # Level badge (top-right corner of card, like card number)
+        lv_str = f"Lv.{player.level}"
+        lv_text = self.font_medium.render(lv_str, True, COLOR_INK)
+        self.screen.blit(lv_text, (card_x + card_w - lv_text.get_width() - 8, card_y + 4))
 
-            # Keys icon (circle + line)
-            pygame.draw.circle(self.screen, COLOR_INK, (stat_x + 4, stat_y + 4), 4, 1)
-            pygame.draw.line(self.screen, COLOR_INK,
-                             (stat_x + 4, stat_y + 8), (stat_x + 4, stat_y + 14), 2)
-            key_text = self.font_small.render(f" {player.keys}", True, COLOR_INK)
-            self.screen.blit(key_text, (stat_x + 10, stat_y))
-            stat_x += 40
+        # --- Stat grid (right side, ink icons with numbers) ---
+        grid_x = portrait_x + portrait_w + 12
+        grid_y = card_y + 32
+        col_w = 85
+        row_h = 26
 
-            # Gold icon (filled circle)
-            pygame.draw.circle(self.screen, (200, 180, 50), (stat_x + 5, stat_y + 6), 5)
-            pygame.draw.circle(self.screen, COLOR_INK, (stat_x + 5, stat_y + 6), 5, 1)
-            gold_text = self.font_small.render(f" {player.gold}", True, COLOR_INK)
-            self.screen.blit(gold_text, (stat_x + 12, stat_y))
-            stat_x += 45
+        # Row 1: ATK, DEF/Speed, Range
+        # ATK - sword icon
+        self._draw_ink_sword(grid_x + 2, grid_y + 4)
+        atk_text = self.font_medium.render(f"{player.attack}", True, COLOR_INK)
+        self.screen.blit(atk_text, (grid_x + 18, grid_y + 2))
 
-            # Potion icon (red cross + count)
-            px = stat_x
-            pygame.draw.line(self.screen, (200, 40, 40),
-                             (px + 4, stat_y + 2), (px + 4, stat_y + 12), 3)
-            pygame.draw.line(self.screen, (200, 40, 40),
-                             (px, stat_y + 7), (px + 8, stat_y + 7), 3)
-            pot_text = self.font_small.render(
-                f" x{player.potions}", True, COLOR_INK)
-            self.screen.blit(pot_text, (px + 10, stat_y))
-            stat_x += 45
+        # Speed - boot icon
+        sx2 = grid_x + col_w
+        self._draw_ink_boot(sx2 + 2, grid_y + 4)
+        spd_text = self.font_medium.render(f"{player.speed}", True, COLOR_INK)
+        self.screen.blit(spd_text, (sx2 + 18, grid_y + 2))
 
-            # Weapon
-            weapon_str = player.weapon if player.weapon else "None"
-            wpn_text = self.font_small.render(f"Wpn: {weapon_str}", True, COLOR_INK)
-            self.screen.blit(wpn_text, (stat_x, stat_y))
+        # Range - arrow icon
+        sx3 = grid_x + col_w * 2
+        self._draw_ink_arrow(sx3 + 2, grid_y + 4)
+        rng_text = self.font_medium.render(f"{player.attack_range}", True, COLOR_INK)
+        self.screen.blit(rng_text, (sx3 + 18, grid_y + 2))
 
-        # === CENTER SECTION: Phase text ===
-        # (Phase is drawn in _draw_round_banner instead)
+        # Row 2: HP bar
+        hp_y = grid_y + row_h + 2
+        # Heart icon
+        hx = grid_x
+        pygame.draw.polygon(self.screen, (190, 35, 35),
+                            [(hx + 6, hp_y + 14), (hx, hp_y + 6), (hx + 12, hp_y + 6)])
+        pygame.draw.circle(self.screen, (190, 35, 35), (hx + 3, hp_y + 5), 3)
+        pygame.draw.circle(self.screen, (190, 35, 35), (hx + 9, hp_y + 5), 3)
 
-        # === RIGHT SECTION: Round + Cards info ===
-        right_x = SCREEN_WIDTH - 170
-        right_y = panel_y + 15
-        round_text = self.font_medium.render(
+        bar_x = grid_x + 18
+        bar_w = 180
+        bar_h = 14
+        # Red cubes style HP (filled rectangles for each HP segment)
+        hp_ratio = player.health / player.max_health if player.max_health > 0 else 0
+        # Background
+        pygame.draw.rect(self.screen, (220, 215, 205),
+                         pygame.Rect(bar_x, hp_y + 2, bar_w, bar_h), border_radius=2)
+        # Fill
+        fill_w = int(bar_w * hp_ratio)
+        if fill_w > 0:
+            # Draw as segmented red cubes
+            cube_w = 12
+            num_cubes = fill_w // cube_w
+            for i in range(num_cubes):
+                cx = bar_x + 1 + i * (cube_w + 1)
+                # Red translucent cube
+                cube_surf = pygame.Surface((cube_w, bar_h - 2), pygame.SRCALPHA)
+                cube_surf.fill((200, 40, 40, 200))
+                # Highlight on top
+                pygame.draw.line(cube_surf, (240, 100, 100, 180),
+                                 (1, 1), (cube_w - 2, 1), 1)
+                self.screen.blit(cube_surf, (cx, hp_y + 3))
+        pygame.draw.rect(self.screen, COLOR_INK,
+                         pygame.Rect(bar_x, hp_y + 2, bar_w, bar_h), 1, border_radius=2)
+        # HP text
+        hp_str = f"{player.health}/{player.max_health}"
+        hp_text = self.font_small.render(hp_str, True, COLOR_INK)
+        self.screen.blit(hp_text, (bar_x + bar_w + 4, hp_y + 2))
+
+        # Row 3: AP pips (as green cubes) + XP
+        ap_y = hp_y + row_h - 2
+        ap_label = self.font_small.render("AP", True, COLOR_INK)
+        self.screen.blit(ap_label, (grid_x, ap_y + 2))
+        for i in range(player.max_action_points):
+            pip_x = grid_x + 22 + i * 22
+            pip_rect = pygame.Rect(pip_x, ap_y + 2, 18, 14)
+            if i < player.action_points:
+                # Green cube
+                cube_surf = pygame.Surface((18, 14), pygame.SRCALPHA)
+                cube_surf.fill((50, 170, 50, 200))
+                pygame.draw.line(cube_surf, (100, 220, 100, 180), (1, 1), (16, 1), 1)
+                self.screen.blit(cube_surf, (pip_x, ap_y + 2))
+            else:
+                pygame.draw.rect(self.screen, (210, 205, 195), pip_rect)
+            pygame.draw.rect(self.screen, COLOR_INK, pip_rect, 1)
+
+        # XP mini bar
+        xp_x = grid_x + 22 + player.max_action_points * 22 + 10
+        xp_label = self.font_tiny.render(
+            f"XP {player.xp}/{player.xp_to_next}", True, COLOR_INK_LIGHT)
+        self.screen.blit(xp_label, (xp_x, ap_y + 4))
+
+        # Row 4: Inventory icons
+        inv_y = ap_y + row_h - 4
+        inv_x = grid_x
+
+        # Keys icon
+        pygame.draw.circle(self.screen, COLOR_INK, (inv_x + 5, inv_y + 5), 4, 1)
+        pygame.draw.line(self.screen, COLOR_INK,
+                         (inv_x + 5, inv_y + 9), (inv_x + 5, inv_y + 15), 2)
+        kt = self.font_small.render(f"{player.keys}", True, COLOR_INK)
+        self.screen.blit(kt, (inv_x + 12, inv_y + 2))
+        inv_x += 35
+
+        # Gold icon
+        pygame.draw.circle(self.screen, (200, 180, 50), (inv_x + 5, inv_y + 7), 6)
+        pygame.draw.circle(self.screen, COLOR_INK, (inv_x + 5, inv_y + 7), 6, 1)
+        gt = self.font_small.render(f"{player.gold}", True, COLOR_INK)
+        self.screen.blit(gt, (inv_x + 14, inv_y + 2))
+        inv_x += 40
+
+        # Potion icon (red cross)
+        px = inv_x
+        pygame.draw.line(self.screen, (190, 35, 35),
+                         (px + 5, inv_y + 2), (px + 5, inv_y + 13), 3)
+        pygame.draw.line(self.screen, (190, 35, 35),
+                         (px + 1, inv_y + 7), (px + 9, inv_y + 7), 3)
+        pt = self.font_small.render(f"x{player.potions}", True, COLOR_INK)
+        self.screen.blit(pt, (px + 13, inv_y + 2))
+        inv_x += 45
+
+        # Weapon
+        weapon_str = player.weapon if player.weapon else "-"
+        wt = self.font_small.render(f"Wpn: {weapon_str}", True, COLOR_INK_LIGHT)
+        self.screen.blit(wt, (inv_x, inv_y + 2))
+
+        # === Right section: Round info card ===
+        info_x = card_x + card_w + 20
+        info_y = card_y
+        info_w = SCREEN_WIDTH - info_x - 10
+        info_h = card_h
+
+        # Small info card
+        info_rect = pygame.Rect(info_x, info_y, info_w, info_h)
+        pygame.draw.rect(self.screen, COLOR_CARD_FILL, info_rect, border_radius=3)
+        pygame.draw.rect(self.screen, COLOR_INK, info_rect, 2, border_radius=3)
+
+        # Round number
+        round_text = self.font_large.render(
             f"Round {game_logic.round_number}", True, COLOR_INK)
-        self.screen.blit(round_text, (right_x, right_y))
+        self.screen.blit(round_text, (info_x + 10, info_y + 8))
+        pygame.draw.line(self.screen, COLOR_INK,
+                         (info_x + 8, info_y + 32),
+                         (info_x + info_w - 8, info_y + 32), 1)
 
+        # Cards drawn
         cards_text = self.font_small.render(
             f"Cards: {game_logic.world.deck.cards_drawn}", True, COLOR_INK)
-        self.screen.blit(cards_text, (right_x, right_y + 28))
+        self.screen.blit(cards_text, (info_x + 10, info_y + 38))
+
+        # Kills
+        kills_text = self.font_small.render(
+            f"Kills: {player.monsters_killed}", True, COLOR_INK)
+        self.screen.blit(kills_text, (info_x + 10, info_y + 56))
+
+        # Player ID badge
+        pid_text = self.font_small.render(
+            f"P{player.player_id + 1}", True, player.color)
+        self.screen.blit(pid_text, (info_x + info_w - 30, info_y + 8))
+
+    def _draw_character_portrait(self, cx, cy, ctype, pw, ph):
+        """Draw an ink-sketch style character portrait."""
+        ink = COLOR_INK
+        if ctype == "Warrior":
+            # Hooded figure with sword
+            # Head
+            pygame.draw.circle(self.screen, ink, (cx, cy - 20), 10, 2)
+            # Hood/cloak
+            pygame.draw.lines(self.screen, ink, False, [
+                (cx - 16, cy - 10), (cx - 12, cy - 28), (cx, cy - 32),
+                (cx + 12, cy - 28), (cx + 16, cy - 10)], 2)
+            # Body
+            pygame.draw.line(self.screen, ink, (cx, cy - 10), (cx, cy + 15), 2)
+            # Sword (right hand)
+            pygame.draw.line(self.screen, ink, (cx + 8, cy - 5), (cx + 22, cy - 25), 2)
+            pygame.draw.line(self.screen, ink, (cx + 15, cy - 18), (cx + 25, cy - 14), 2)
+            # Shield (left hand)
+            pygame.draw.ellipse(self.screen, ink,
+                                pygame.Rect(cx - 22, cy - 8, 14, 18), 2)
+            # Legs
+            pygame.draw.line(self.screen, ink, (cx, cy + 15), (cx - 8, cy + 35), 2)
+            pygame.draw.line(self.screen, ink, (cx, cy + 15), (cx + 8, cy + 35), 2)
+        elif ctype == "Wizard":
+            # Robed figure with staff
+            # Pointy hat
+            pygame.draw.polygon(self.screen, ink,
+                                [(cx, cy - 38), (cx - 10, cy - 15), (cx + 10, cy - 15)], 2)
+            # Head
+            pygame.draw.circle(self.screen, ink, (cx, cy - 15), 8, 2)
+            # Robe (wide triangle)
+            pygame.draw.polygon(self.screen, ink,
+                                [(cx - 4, cy - 7), (cx + 4, cy - 7),
+                                 (cx + 18, cy + 35), (cx - 18, cy + 35)], 2)
+            # Staff (left side)
+            pygame.draw.line(self.screen, ink, (cx - 14, cy - 30), (cx - 14, cy + 35), 2)
+            # Staff orb
+            pygame.draw.circle(self.screen, ink, (cx - 14, cy - 30), 4, 2)
+            # Star sparkle on orb
+            for angle in range(0, 360, 72):
+                import math as _m
+                dx = int(6 * _m.cos(_m.radians(angle)))
+                dy = int(6 * _m.sin(_m.radians(angle)))
+                pygame.draw.line(self.screen, ink,
+                                 (cx - 14, cy - 30), (cx - 14 + dx, cy - 30 + dy), 1)
+        elif ctype == "Hunter":
+            # Figure with bow
+            # Head
+            pygame.draw.circle(self.screen, ink, (cx, cy - 20), 9, 2)
+            # Hood
+            pygame.draw.arc(self.screen, ink,
+                            pygame.Rect(cx - 12, cy - 32, 24, 20), 0.3, 2.8, 2)
+            # Body
+            pygame.draw.line(self.screen, ink, (cx, cy - 11), (cx, cy + 15), 2)
+            # Bow (right side, curved)
+            pygame.draw.arc(self.screen, ink,
+                            pygame.Rect(cx + 6, cy - 18, 20, 40), 1.2, 5.1, 2)
+            # Bowstring
+            pygame.draw.line(self.screen, ink, (cx + 14, cy - 16), (cx + 14, cy + 20), 1)
+            # Arrow
+            pygame.draw.line(self.screen, ink, (cx + 2, cy), (cx + 24, cy), 1)
+            pygame.draw.line(self.screen, ink, (cx + 22, cy - 3), (cx + 24, cy), 1)
+            pygame.draw.line(self.screen, ink, (cx + 22, cy + 3), (cx + 24, cy), 1)
+            # Legs
+            pygame.draw.line(self.screen, ink, (cx, cy + 15), (cx - 8, cy + 35), 2)
+            pygame.draw.line(self.screen, ink, (cx, cy + 15), (cx + 6, cy + 35), 2)
+        else:
+            # Generic figure
+            pygame.draw.circle(self.screen, ink, (cx, cy - 15), 10, 2)
+            pygame.draw.line(self.screen, ink, (cx, cy - 5), (cx, cy + 20), 2)
+            pygame.draw.line(self.screen, ink, (cx - 12, cy + 5), (cx + 12, cy + 5), 2)
+            pygame.draw.line(self.screen, ink, (cx, cy + 20), (cx - 8, cy + 38), 2)
+            pygame.draw.line(self.screen, ink, (cx, cy + 20), (cx + 8, cy + 38), 2)
+
+    def _draw_ink_sword(self, x, y):
+        """Draw a small ink sword icon."""
+        pygame.draw.line(self.screen, COLOR_INK, (x, y + 10), (x + 10, y), 2)
+        pygame.draw.line(self.screen, COLOR_INK, (x + 7, y + 2), (x + 12, y + 5), 1)
+
+    def _draw_ink_boot(self, x, y):
+        """Draw a small ink boot/speed icon."""
+        pygame.draw.line(self.screen, COLOR_INK, (x + 3, y), (x + 3, y + 10), 2)
+        pygame.draw.line(self.screen, COLOR_INK, (x + 3, y + 10), (x + 10, y + 10), 2)
+        pygame.draw.line(self.screen, COLOR_INK, (x + 10, y + 10), (x + 10, y + 7), 1)
+
+    def _draw_ink_arrow(self, x, y):
+        """Draw a small ink arrow/range icon."""
+        pygame.draw.line(self.screen, COLOR_INK, (x, y + 5), (x + 12, y + 5), 2)
+        pygame.draw.line(self.screen, COLOR_INK, (x + 10, y + 2), (x + 12, y + 5), 1)
+        pygame.draw.line(self.screen, COLOR_INK, (x + 10, y + 8), (x + 12, y + 5), 1)
 
     def _draw_round_banner(self, game_logic):
         """Draw the round/phase banner as a card-style tag at top-center."""
@@ -1908,28 +2012,30 @@ class Renderer:
                          (SCREEN_WIDTH // 2 - phase_text.get_width() // 2, by + 6))
 
     def _draw_message_log(self, game_logic):
-        """Draw message log on right side of HUD with parchment background."""
+        """Draw message log floating above HUD panel."""
         panel_y = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
-        x = SCREEN_WIDTH - 350
-        y = panel_y + 15
-        log_w = 180
-        log_h = HUD_PANEL_HEIGHT - 20
-        messages = game_logic.message_log[-5:]
+        log_w = 280
+        log_h = 90
+        x = SCREEN_WIDTH - log_w - 10
+        y = panel_y - log_h - 5
+        messages = game_logic.message_log[-4:]
         if not messages:
             return
 
-        # Semi-transparent parchment bg
+        # Semi-transparent dark background
         bg_surf = pygame.Surface((log_w, log_h), pygame.SRCALPHA)
-        bg_surf.fill((235, 225, 200, 180))
-        self.screen.blit(bg_surf, (x - 5, y - 5))
+        bg_surf.fill((15, 12, 10, 180))
+        self.screen.blit(bg_surf, (x, y))
         pygame.draw.rect(self.screen, COLOR_INK_LIGHT,
-                         pygame.Rect(x - 5, y - 5, log_w, log_h), 1)
+                         pygame.Rect(x, y, log_w, log_h), 1)
 
         for i, msg in enumerate(messages):
-            # Truncate long messages
-            display_msg = msg if len(msg) < 28 else msg[:25] + "..."
-            text = self.font_small.render(display_msg, True, COLOR_INK)
-            self.screen.blit(text, (x, y + i * 18))
+            display_msg = msg if len(msg) < 40 else msg[:37] + "..."
+            alpha = 255 - (len(messages) - 1 - i) * 40
+            text = self.font_small.render(display_msg, True,
+                                          (235, 230, 218))
+            text.set_alpha(max(alpha, 120))
+            self.screen.blit(text, (x + 6, y + 6 + i * 20))
 
     def render_skip_button(self, game_logic):
         """Render skip turn button (parchment style) and return its rect."""

@@ -112,11 +112,13 @@ SKILLS = {
     "Wizard": [
         {
             "name": "Fireball",
-            "description": "AoE: 4 dmg to target, 2 splash",
+            "description": "AoE: scales with level",
             "ap_cost": 2,
             "cooldown": 4,
             "damage": 4,
+            "damage_per_level": 1,
             "splash_damage": 2,
+            "splash_per_level": 0.5,
             "splash_range": 1,
             "target": "ranged",
             "range": 3,
@@ -133,6 +135,17 @@ SKILLS = {
             "effect": "heal",
             "heal_amount": 6,
             "key": "2",
+        },
+        {
+            "name": "Teleport",
+            "description": "Blink to a tile within range 4",
+            "ap_cost": 1,
+            "cooldown": 3,
+            "damage": 0,
+            "target": "ranged",
+            "range": 4,
+            "effect": "teleport",
+            "key": "3",
         },
     ],
     "Hunter": [
@@ -293,7 +306,7 @@ LOOT_TABLE = {
 }
 
 # UI layout
-HUD_PANEL_HEIGHT = 140
+HUD_PANEL_HEIGHT = 160
 
 # Game rules
 BOSS_CARD_THRESHOLD = 8  # Boss card appears after this many cards drawn

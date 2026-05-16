@@ -324,6 +324,34 @@ class DungeonDeck:
             door_r, door_c = total_rows // 2, total_cols - 1
         grid[door_r][door_c] = TILE_DOOR
 
+        # Clear a 3-wide corridor from door into the arena
+        if entry_side == "top":
+            for r in range(0, 3):
+                for dc in range(-1, 2):
+                    c = door_c + dc
+                    if 0 <= c < total_cols and grid[r][c] == TILE_WALL:
+                        grid[r][c] = TILE_ROAD
+        elif entry_side == "bottom":
+            for r in range(total_rows - 3, total_rows):
+                for dc in range(-1, 2):
+                    c = door_c + dc
+                    if 0 <= c < total_cols and grid[r][c] == TILE_WALL:
+                        grid[r][c] = TILE_ROAD
+        elif entry_side == "left":
+            for c in range(0, 3):
+                for dr in range(-1, 2):
+                    r = door_r + dr
+                    if 0 <= r < total_rows and grid[r][c] == TILE_WALL:
+                        grid[r][c] = TILE_ROAD
+        elif entry_side == "right":
+            for c in range(total_cols - 3, total_cols):
+                for dr in range(-1, 2):
+                    r = door_r + dr
+                    if 0 <= r < total_rows and grid[r][c] == TILE_WALL:
+                        grid[r][c] = TILE_ROAD
+        # Restore the door tile (may have been cleared)
+        grid[door_r][door_c] = TILE_DOOR
+
         # --- Slice into 3x3 standard cards ---
         cards = {}
         for gr in range(BOSS_GRID_ROWS):
