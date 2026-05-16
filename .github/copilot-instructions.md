@@ -18,3 +18,4 @@
 8. ** Implementation should be done in sequential order, not in parallel.** Always finish one step before moving on to the next step.
 9. ** Update the readme file with the new feature or change.** Always keep the documentation up to date.
 10. ** Think like a user, not a developer.** Always consider the user experience and usability of the feature or change.
+11. ** Stage the changes and ask for confirmation before committing.** Always review the changes before committing to the repository.

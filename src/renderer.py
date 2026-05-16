@@ -59,6 +59,14 @@ class Renderer:
         self.font_damage = pygame.font.Font(None, 52)
         # Pre-render wood grain table texture
         self._table_texture = self._generate_table_texture()
+        # Pre-render tile texture variants for rich visuals
+        self._tile_cache = self._generate_tile_cache()
+        # Wall shadow overlay (alpha surface, per-edge)
+        self._wall_shadow_cache = self._generate_wall_shadow_cache()
+        # Ambient dust particles (screen-space)
+        self._dust_particles = self._init_dust_particles(40)
+        # Pre-render torch glow surface
+        self._torch_glow_surf = self._generate_torch_glow()
 
     def _generate_table_texture(self):
         """Pre-render a wood grain table surface."""
@@ -99,6 +107,263 @@ class Renderer:
             kr = rng.randint(8, 18)
             pygame.draw.circle(surf, COLOR_TABLE_DARK, (kx, ky), kr, 2)
             pygame.draw.circle(surf, COLOR_TABLE_DARK, (kx, ky), kr // 2, 1)
+        return surf
+
+    def _generate_tile_cache(self):
+        """Pre-render tile texture variants for rich visuals."""
+        TS = TILE_SIZE
+        cache = {"floor": [], "wall": [], "door": None, "door_locked": None, "chest": None}
+        rng = random.Random(12345)
+
+        # --- Stone floor variants (6) ---
+        for v in range(6):
+            s = pygame.Surface((TS, TS))
+            # Base color with slight variation
+            base_r, base_g, base_b = COLOR_ROAD
+            br = base_r + rng.randint(-6, 6)
+            bg = base_g + rng.randint(-6, 6)
+            bb = base_b + rng.randint(-6, 6)
+            s.fill((br, bg, bb))
+            # Stone slab grid (2x2 or 2x3 pattern)
+            slab_h = TS // 2 + rng.randint(-2, 2)
+            # Horizontal mortar line
+            mortar = (max(0, br - 15), max(0, bg - 15), max(0, bb - 15))
+            mortar_hi = (min(255, br + 8), min(255, bg + 8), min(255, bb + 8))
+            pygame.draw.line(s, mortar, (0, slab_h), (TS, slab_h), 1)
+            pygame.draw.line(s, mortar_hi, (0, slab_h + 1), (TS, slab_h + 1), 1)
+            # Vertical mortar lines (staggered)
+            off1 = TS // 3 + rng.randint(-3, 3)
+            off2 = 2 * TS // 3 + rng.randint(-3, 3)
+            pygame.draw.line(s, mortar, (off1, 0), (off1, slab_h), 1)
+            pygame.draw.line(s, mortar, (off2, slab_h), (off2, TS), 1)
+            # Subtle surface noise (sparse pixels, not every pixel)
+            for _ in range(25):
+                px = rng.randint(0, TS - 1)
+                py = rng.randint(0, TS - 1)
+                noise = rng.randint(-10, 10)
+                c = (max(0, min(255, br + noise)),
+                     max(0, min(255, bg + noise)),
+                     max(0, min(255, bb + noise)))
+                s.set_at((px, py), c)
+            # Cracks (1-2 per variant)
+            for _ in range(rng.randint(1, 2)):
+                cx = rng.randint(6, TS - 6)
+                cy = rng.randint(6, TS - 6)
+                crack_color = (max(0, br - 20), max(0, bg - 20), max(0, bb - 20))
+                length = rng.randint(8, 18)
+                for ci in range(length):
+                    dx = rng.choice([-1, 0, 1])
+                    dy = rng.choice([0, 1])
+                    cx = max(0, min(TS - 1, cx + dx))
+                    cy = max(0, min(TS - 1, cy + dy))
+                    s.set_at((cx, cy), crack_color)
+            # Worn spot (lighter circle)
+            if v % 3 == 0:
+                wx = rng.randint(10, TS - 10)
+                wy = rng.randint(10, TS - 10)
+                worn = pygame.Surface((12, 12), pygame.SRCALPHA)
+                pygame.draw.circle(worn, (min(255, br + 12), min(255, bg + 12),
+                                          min(255, bb + 12), 40), (6, 6), 6)
+                s.blit(worn, (wx - 6, wy - 6))
+            # Edge highlight (top/left = slightly lighter for depth)
+            pygame.draw.line(s, mortar_hi, (0, 0), (TS - 1, 0), 1)
+            pygame.draw.line(s, mortar_hi, (0, 0), (0, TS - 1), 1)
+            cache["floor"].append(s)
+
+        # --- Brick wall variants (4) ---
+        for v in range(4):
+            s = pygame.Surface((TS, TS))
+            wb_r, wb_g, wb_b = COLOR_WALL
+            s.fill((wb_r + rng.randint(-4, 4), wb_g + rng.randint(-4, 4),
+                    wb_b + rng.randint(-4, 4)))
+            brick_h = 10
+            mortar_c = (max(0, wb_r - 10), max(0, wb_g - 10), max(0, wb_b - 10))
+            for by in range(0, TS, brick_h):
+                # Mortar line
+                pygame.draw.line(s, mortar_c, (0, by), (TS, by), 1)
+                # Individual bricks with color variation
+                stagger = (TS // 3) if (by // brick_h) % 2 == 0 else (2 * TS // 3)
+                # Brick tops (highlight)
+                hi = (min(255, wb_r + 12), min(255, wb_g + 12), min(255, wb_b + 12))
+                pygame.draw.line(s, hi, (0, by + 1), (TS, by + 1), 1)
+                # Vertical mortar
+                pygame.draw.line(s, mortar_c, (stagger, by), (stagger, by + brick_h), 1)
+                # Per-brick color variation
+                for bx_start in [0, stagger]:
+                    bx_end = stagger if bx_start == 0 else TS
+                    bw = bx_end - bx_start
+                    if bw > 4:
+                        br_v = rng.randint(-6, 6)
+                        brick_surf = pygame.Surface((bw - 2, brick_h - 2), pygame.SRCALPHA)
+                        brick_surf.fill((max(0, min(255, wb_r + br_v)),
+                                         max(0, min(255, wb_g + br_v)),
+                                         max(0, min(255, wb_b + br_v)), 60))
+                        s.blit(brick_surf, (bx_start + 1, by + 1))
+            # Moss/lichen spots
+            for _ in range(rng.randint(0, 3)):
+                mx = rng.randint(4, TS - 4)
+                my = rng.randint(4, TS - 4)
+                moss_r = rng.randint(2, 4)
+                pygame.draw.circle(s, (35, 50, 30), (mx, my), moss_r)
+                pygame.draw.circle(s, (45, 60, 35), (mx, my), moss_r - 1)
+            # Chipped brick (dark indent)
+            if v % 2 == 0:
+                chip_x = rng.randint(8, TS - 8)
+                chip_y = rng.randint(4, TS - 4)
+                pygame.draw.rect(s, mortar_c,
+                                 pygame.Rect(chip_x, chip_y, rng.randint(3, 6),
+                                             rng.randint(2, 4)))
+            # Dark border
+            pygame.draw.rect(s, (max(0, wb_r - 15), max(0, wb_g - 15),
+                                  max(0, wb_b - 15)),
+                             pygame.Rect(0, 0, TS, TS), 2)
+            cache["wall"].append(s)
+
+        # --- Door texture ---
+        s = pygame.Surface((TS, TS))
+        s.fill(COLOR_ROAD)
+        dr = pygame.Rect(6, 3, TS - 12, TS - 6)
+        # Wood base
+        s.fill(COLOR_DOOR, dr)
+        # Wood grain
+        for gy in range(dr.top, dr.bottom, 3):
+            grain_c = (max(0, COLOR_DOOR[0] + rng.randint(-12, 8)),
+                       max(0, COLOR_DOOR[1] + rng.randint(-12, 8)),
+                       max(0, COLOR_DOOR[2] + rng.randint(-8, 4)))
+            pygame.draw.line(s, grain_c, (dr.left + 1, gy), (dr.right - 1, gy), 1)
+        # Plank seams
+        for px in [TS // 3, 2 * TS // 3]:
+            pygame.draw.line(s, (max(0, COLOR_DOOR[0] - 30), max(0, COLOR_DOOR[1] - 30),
+                                  max(0, COLOR_DOOR[2] - 20)),
+                             (px, 3), (px, TS - 3), 2)
+        # Iron bands
+        for band_y in [TS // 4, 3 * TS // 4]:
+            pygame.draw.rect(s, (80, 75, 70), pygame.Rect(dr.left, band_y - 2, dr.width, 4))
+            pygame.draw.rect(s, (50, 45, 40), pygame.Rect(dr.left, band_y - 2, dr.width, 4), 1)
+            # Rivets
+            for rx in [dr.left + 6, dr.right - 6]:
+                pygame.draw.circle(s, (100, 95, 85), (rx, band_y), 2)
+                pygame.draw.circle(s, (60, 55, 50), (rx, band_y), 2, 1)
+        # Handle
+        pygame.draw.circle(s, (90, 85, 75), (TS - 14, TS // 2), 4)
+        pygame.draw.circle(s, (50, 45, 40), (TS - 14, TS // 2), 4, 1)
+        pygame.draw.circle(s, (110, 105, 95), (TS - 14, TS // 2), 2)
+        # Border
+        pygame.draw.rect(s, COLOR_INK, dr, 2)
+        cache["door"] = s
+
+        # --- Locked door texture ---
+        s2 = s.copy()
+        lock_cx = TS // 2
+        lock_cy = TS // 2
+        # Lock body
+        pygame.draw.rect(s2, (70, 65, 55), pygame.Rect(lock_cx - 6, lock_cy - 1, 12, 10))
+        pygame.draw.rect(s2, (40, 35, 30), pygame.Rect(lock_cx - 6, lock_cy - 1, 12, 10), 1)
+        # Lock shackle
+        pygame.draw.arc(s2, (70, 65, 55), pygame.Rect(lock_cx - 4, lock_cy - 8, 8, 10),
+                        0, 3.14, 2)
+        # Keyhole
+        pygame.draw.circle(s2, (30, 25, 20), (lock_cx, lock_cy + 2), 2)
+        pygame.draw.line(s2, (30, 25, 20), (lock_cx, lock_cy + 2), (lock_cx, lock_cy + 5), 1)
+        cache["door_locked"] = s2
+
+        # --- Chest texture ---
+        s = pygame.Surface((TS, TS))
+        s.fill(COLOR_ROAD)
+        # Shadow under chest
+        shadow_surf = pygame.Surface((32, 8), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow_surf, (0, 0, 0, 40), shadow_surf.get_rect())
+        s.blit(shadow_surf, (TS // 2 - 16, TS // 2 + 12))
+        # Chest body
+        cx, cy = TS // 2, TS // 2
+        chest_w, chest_h = 30, 22
+        body_rect = pygame.Rect(cx - chest_w // 2, cy - chest_h // 2 + 4, chest_w, chest_h)
+        # Wood body with grain
+        pygame.draw.rect(s, COLOR_CHEST, body_rect)
+        for gy in range(body_rect.top, body_rect.bottom, 3):
+            gc = (max(0, COLOR_CHEST[0] + rng.randint(-15, 10)),
+                  max(0, COLOR_CHEST[1] + rng.randint(-15, 10)),
+                  max(0, COLOR_CHEST[2] + rng.randint(-8, 4)))
+            pygame.draw.line(s, gc, (body_rect.left + 1, gy), (body_rect.right - 1, gy), 1)
+        # Metal bands
+        for band_y in [body_rect.top + 4, body_rect.bottom - 5]:
+            pygame.draw.line(s, (120, 110, 80), (body_rect.left, band_y),
+                             (body_rect.right, band_y), 2)
+        pygame.draw.rect(s, COLOR_INK, body_rect, 2)
+        # Lid
+        lid_rect = pygame.Rect(cx - chest_w // 2, cy - chest_h // 2 - 2, chest_w, 14)
+        pygame.draw.arc(s, COLOR_INK, lid_rect, 0, 3.14, 2)
+        # Clasp with gem
+        pygame.draw.rect(s, (120, 110, 80), pygame.Rect(cx - 4, cy - 2, 8, 8))
+        pygame.draw.rect(s, COLOR_INK, pygame.Rect(cx - 4, cy - 2, 8, 8), 1)
+        pygame.draw.circle(s, (180, 40, 40), (cx, cy + 2), 2)  # Ruby
+        pygame.draw.circle(s, (220, 80, 80), (cx, cy + 1), 1)  # Highlight
+        cache["chest"] = s
+
+        return cache
+
+    def _generate_wall_shadow_cache(self):
+        """Pre-render shadow overlays for edges adjacent to walls."""
+        TS = TILE_SIZE
+        shadows = {}
+        shadow_depth = 8
+        for direction in ["top", "bottom", "left", "right"]:
+            s = pygame.Surface((TS, TS), pygame.SRCALPHA)
+            for i in range(shadow_depth):
+                a = int(50 * (1.0 - i / shadow_depth))
+                if direction == "top":
+                    pygame.draw.line(s, (0, 0, 0, a), (0, i), (TS, i))
+                elif direction == "bottom":
+                    pygame.draw.line(s, (0, 0, 0, a), (0, TS - 1 - i), (TS, TS - 1 - i))
+                elif direction == "left":
+                    pygame.draw.line(s, (0, 0, 0, a), (i, 0), (i, TS))
+                elif direction == "right":
+                    pygame.draw.line(s, (0, 0, 0, a), (TS - 1 - i, 0), (TS - 1 - i, TS))
+            shadows[direction] = s
+        # Corner shadow (diagonal)
+        for corner in ["tl", "tr", "bl", "br"]:
+            s = pygame.Surface((TS, TS), pygame.SRCALPHA)
+            for i in range(shadow_depth):
+                a = int(35 * (1.0 - i / shadow_depth))
+                if corner == "tl":
+                    pygame.draw.line(s, (0, 0, 0, a), (0, i), (i, 0))
+                elif corner == "tr":
+                    pygame.draw.line(s, (0, 0, 0, a), (TS - 1, i), (TS - 1 - i, 0))
+                elif corner == "bl":
+                    pygame.draw.line(s, (0, 0, 0, a), (0, TS - 1 - i), (i, TS - 1))
+                elif corner == "br":
+                    pygame.draw.line(s, (0, 0, 0, a), (TS - 1, TS - 1 - i), (TS - 1 - i, TS - 1))
+            shadows[corner] = s
+        return shadows
+
+    def _init_dust_particles(self, count):
+        """Initialize screen-space ambient dust particles."""
+        rng = random.Random(999)
+        particles = []
+        for _ in range(count):
+            particles.append({
+                "x": rng.uniform(0, SCREEN_WIDTH),
+                "y": rng.uniform(0, SCREEN_HEIGHT - HUD_PANEL_HEIGHT),
+                "vx": rng.uniform(-0.15, 0.15),
+                "vy": rng.uniform(-0.08, 0.05),
+                "size": rng.choice([1, 1, 1, 2]),
+                "alpha": rng.randint(20, 50),
+                "drift_phase": rng.uniform(0, 6.28),
+            })
+        return particles
+
+    def _generate_torch_glow(self):
+        """Pre-render a reusable torch glow surface."""
+        glow_radius = TILE_SIZE * 3
+        size = glow_radius * 2
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        # Warm radial gradient with smooth falloff
+        for r in range(glow_radius, 0, -2):
+            t = r / glow_radius
+            a = int(30 * (1.0 - t * t))  # Quadratic falloff
+            warmth = int(40 * (1.0 - t))
+            color = (255, 180 + warmth, 80, a)
+            pygame.draw.circle(surf, color, (glow_radius, glow_radius), r)
         return surf
 
     def _draw_table_background(self):
@@ -196,8 +461,11 @@ class Renderer:
         # Decorative board game frame around the play area
         self._draw_game_frame()
 
+        # Ambient dust particles (screen-space, drawn last before HUD for atmosphere)
+        self._update_and_draw_dust()
+
     def _draw_tiles(self, world):
-        """Draw visible dungeon tiles in hand-drawn ink style."""
+        """Draw visible dungeon tiles using pre-rendered textures."""
         # Calculate visible range
         start_col = self.camera.x // TILE_SIZE - 1
         end_col = (self.camera.x + SCREEN_WIDTH) // TILE_SIZE + 1
@@ -211,109 +479,49 @@ class Renderer:
                     continue
 
                 sx, sy = self.camera.world_to_screen(row, col)
-                rect = pygame.Rect(sx, sy, TILE_SIZE, TILE_SIZE)
 
                 if tile == TILE_ROAD:
-                    # Dark stone dungeon floor
-                    pygame.draw.rect(self.screen, COLOR_ROAD, rect)
-                    # Stone slab pattern
-                    seed = (row * 1000 + col) % 7
-                    if seed == 0:
-                        pygame.draw.line(self.screen, COLOR_GRID_LINE,
-                                         (sx + 8, sy + 20), (sx + 30, sy + 25), 1)
-                    elif seed == 3:
-                        pygame.draw.line(self.screen, COLOR_GRID_LINE,
-                                         (sx + 15, sy + 35), (sx + 38, sy + 30), 1)
-                    elif seed == 5:
-                        # Tiny pebble
-                        pygame.draw.circle(self.screen, COLOR_GRID_LINE,
-                                           (sx + 20, sy + 15), 2, 1)
-                    # Subtle slab lines
-                    if (row + col) % 3 == 0:
-                        pygame.draw.line(self.screen, COLOR_GRID_LINE,
-                                         (sx + 2, sy + TILE_SIZE // 2),
-                                         (sx + TILE_SIZE - 2, sy + TILE_SIZE // 2), 1)
-
+                    variant = (row * 7 + col * 13) % len(self._tile_cache["floor"])
+                    self.screen.blit(self._tile_cache["floor"][variant], (sx, sy))
                 elif tile == TILE_WALL:
-                    # Dark dungeon wall with brick pattern
-                    pygame.draw.rect(self.screen, COLOR_WALL, rect)
-                    # Brick pattern: horizontal lines with staggered vertical breaks
-                    for row_off in range(0, TILE_SIZE, 12):
-                        pygame.draw.line(self.screen, COLOR_WALL_HATCH,
-                                         (sx, sy + row_off), (sx + TILE_SIZE, sy + row_off), 1)
-                    # Vertical brick breaks (staggered)
-                    for row_off in range(0, TILE_SIZE, 12):
-                        offset = TILE_SIZE // 3 if (row_off // 12) % 2 == 0 else 2 * TILE_SIZE // 3
-                        pygame.draw.line(self.screen, COLOR_WALL_HATCH,
-                                         (sx + offset, sy + row_off),
-                                         (sx + offset, sy + row_off + 12), 1)
-                    # Moss spots on some walls
-                    moss_seed = (row * 31 + col * 17) % 11
-                    if moss_seed < 3:
-                        mx = sx + (moss_seed * 13 + 8) % TILE_SIZE
-                        my = sy + (moss_seed * 7 + 5) % TILE_SIZE
-                        pygame.draw.circle(self.screen, (40, 55, 35), (mx, my), 2)
-                    # Thick ink border
-                    pygame.draw.rect(self.screen, COLOR_INK, rect, 2)
-
+                    variant = (row * 11 + col * 3) % len(self._tile_cache["wall"])
+                    self.screen.blit(self._tile_cache["wall"][variant], (sx, sy))
                 elif tile == TILE_DOOR:
-                    # Door - wooden plank style with ink outline
-                    pygame.draw.rect(self.screen, COLOR_ROAD, rect)
-                    door_rect = pygame.Rect(sx + 6, sy + 3, TILE_SIZE - 12, TILE_SIZE - 6)
-                    pygame.draw.rect(self.screen, COLOR_DOOR, door_rect)
-                    # Plank lines
-                    pygame.draw.line(self.screen, COLOR_INK,
-                                     (sx + TILE_SIZE//3, sy + 3),
-                                     (sx + TILE_SIZE//3, sy + TILE_SIZE - 3), 1)
-                    pygame.draw.line(self.screen, COLOR_INK,
-                                     (sx + 2*TILE_SIZE//3, sy + 3),
-                                     (sx + 2*TILE_SIZE//3, sy + TILE_SIZE - 3), 1)
-                    # Horizontal brace
-                    pygame.draw.line(self.screen, COLOR_INK,
-                                     (sx + 6, sy + TILE_SIZE//2),
-                                     (sx + TILE_SIZE - 6, sy + TILE_SIZE//2), 2)
-                    # Ink outline
-                    pygame.draw.rect(self.screen, COLOR_INK, door_rect, 2)
-                    # Handle
-                    pygame.draw.circle(self.screen, COLOR_INK,
-                                       (sx + TILE_SIZE - 14, sy + TILE_SIZE // 2), 3, 1)
-
+                    self.screen.blit(self._tile_cache["door"], (sx, sy))
                 elif tile == TILE_DOOR_LOCKED:
-                    # Locked door - similar but with lock symbol
-                    pygame.draw.rect(self.screen, COLOR_ROAD, rect)
-                    door_rect = pygame.Rect(sx + 6, sy + 3, TILE_SIZE - 12, TILE_SIZE - 6)
-                    pygame.draw.rect(self.screen, COLOR_DOOR_LOCKED, door_rect)
-                    pygame.draw.rect(self.screen, COLOR_INK, door_rect, 2)
-                    # Lock icon (circle + rectangle)
-                    lock_cx = sx + TILE_SIZE // 2
-                    lock_cy = sy + TILE_SIZE // 2
-                    pygame.draw.circle(self.screen, COLOR_INK, (lock_cx, lock_cy - 4), 6, 2)
-                    pygame.draw.rect(self.screen, COLOR_INK,
-                                     pygame.Rect(lock_cx - 5, lock_cy, 10, 8), 0)
-                    pygame.draw.rect(self.screen, COLOR_DOOR_LOCKED,
-                                     pygame.Rect(lock_cx - 1, lock_cy + 2, 2, 4), 0)
-
+                    self.screen.blit(self._tile_cache["door_locked"], (sx, sy))
                 elif tile == TILE_CHEST:
-                    # Chest on floor - hand-drawn box with latch
-                    pygame.draw.rect(self.screen, COLOR_ROAD, rect)
-                    # Chest body
-                    cx, cy = sx + TILE_SIZE // 2, sy + TILE_SIZE // 2
-                    chest_w, chest_h = 28, 20
-                    chest_rect = pygame.Rect(cx - chest_w//2, cy - chest_h//2 + 4,
-                                             chest_w, chest_h)
-                    pygame.draw.rect(self.screen, COLOR_CHEST, chest_rect)
-                    pygame.draw.rect(self.screen, COLOR_INK, chest_rect, 2)
-                    # Lid arc
-                    lid_rect = pygame.Rect(cx - chest_w//2, cy - chest_h//2 - 2,
-                                           chest_w, 14)
-                    pygame.draw.arc(self.screen, COLOR_INK, lid_rect, 0, 3.14, 2)
-                    # Latch
-                    pygame.draw.rect(self.screen, COLOR_INK,
-                                     pygame.Rect(cx - 3, cy - 2, 6, 8), 0)
-                    pygame.draw.circle(self.screen, (200, 180, 50), (cx, cy + 6), 2)
+                    self.screen.blit(self._tile_cache["chest"], (sx, sy))
 
-                # Subtle grid line (pencil-weight)
-                pygame.draw.rect(self.screen, COLOR_GRID_LINE, rect, 1)
+                # Subtle grid line
+                pygame.draw.rect(self.screen, COLOR_GRID_LINE,
+                                 pygame.Rect(sx, sy, TILE_SIZE, TILE_SIZE), 1)
+
+        # Wall shadow pass: cast shadows onto adjacent floor tiles
+        for row in range(start_row, end_row):
+            for col in range(start_col, end_col):
+                tile = world.get_tile(row, col)
+                if tile is None or tile == TILE_WALL:
+                    continue
+                sx, sy = self.camera.world_to_screen(row, col)
+                # Check each adjacent direction for walls
+                if world.get_tile(row - 1, col) == TILE_WALL:
+                    self.screen.blit(self._wall_shadow_cache["top"], (sx, sy))
+                if world.get_tile(row + 1, col) == TILE_WALL:
+                    self.screen.blit(self._wall_shadow_cache["bottom"], (sx, sy))
+                if world.get_tile(row, col - 1) == TILE_WALL:
+                    self.screen.blit(self._wall_shadow_cache["left"], (sx, sy))
+                if world.get_tile(row, col + 1) == TILE_WALL:
+                    self.screen.blit(self._wall_shadow_cache["right"], (sx, sy))
+                # Corner shadows (diagonal walls)
+                if (world.get_tile(row - 1, col - 1) == TILE_WALL and
+                        world.get_tile(row - 1, col) != TILE_WALL and
+                        world.get_tile(row, col - 1) != TILE_WALL):
+                    self.screen.blit(self._wall_shadow_cache["tl"], (sx, sy))
+                if (world.get_tile(row - 1, col + 1) == TILE_WALL and
+                        world.get_tile(row - 1, col) != TILE_WALL and
+                        world.get_tile(row, col + 1) != TILE_WALL):
+                    self.screen.blit(self._wall_shadow_cache["tr"], (sx, sy))
 
         # Draw card borders (physical card look with shadow + cream edge)
         for (card_row, card_col) in world.cards:
@@ -461,7 +669,7 @@ class Renderer:
                                      (center_x, center_y), (ax, ay), 2)
                     pygame.draw.circle(self.screen, COLOR_INK_LIGHT, (ax, ay), 2)
 
-            # Health bar (bigger with shadow and HP text)
+            # Health bar (gradient fill with depth)
             if is_multi:
                 tile_span = monster.size * TILE_SIZE
                 bar_w = tile_span - 10
@@ -470,17 +678,31 @@ class Renderer:
                 bar_y = sy + 1
             else:
                 bar_w = TILE_SIZE - 10
-                bar_h = 5
+                bar_h = 6
                 bar_x = sx + 5
                 bar_y = sy + 1
-            # Dark shadow behind bar
-            pygame.draw.rect(self.screen, (20, 18, 15),
-                             pygame.Rect(bar_x, bar_y, bar_w + 1, bar_h + 1))
+            # Dark shadow
+            pygame.draw.rect(self.screen, (15, 12, 10),
+                             pygame.Rect(bar_x + 1, bar_y + 1, bar_w, bar_h))
+            # Background
+            pygame.draw.rect(self.screen, COLOR_HEALTH_BG,
+                             pygame.Rect(bar_x, bar_y, bar_w, bar_h))
+            # Gradient health fill (dark red to bright red)
+            health_w = int(bar_w * monster.health / monster.max_health)
+            if health_w > 0:
+                for i in range(bar_h):
+                    t = i / bar_h
+                    r = int(140 + 60 * (1.0 - t * 0.5))
+                    g = int(30 + 20 * (1.0 - t))
+                    b = int(30 + 15 * (1.0 - t))
+                    pygame.draw.line(self.screen, (r, g, b),
+                                     (bar_x, bar_y + i), (bar_x + health_w, bar_y + i))
+                # Inner highlight
+                pygame.draw.line(self.screen, (220, 80, 80),
+                                 (bar_x + 1, bar_y + 1), (bar_x + health_w - 1, bar_y + 1), 1)
+            # Border
             pygame.draw.rect(self.screen, COLOR_INK,
                              pygame.Rect(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2), 1)
-            health_w = int(bar_w * monster.health / monster.max_health)
-            pygame.draw.rect(self.screen, COLOR_HEALTH_BAR,
-                             pygame.Rect(bar_x, bar_y, health_w, bar_h))
             # HP text on bar for awake monsters
             hp_str = f"{monster.health}/{monster.max_health}"
             hp_surf = self.font_tiny.render(hp_str, True, (255, 255, 255))
@@ -856,19 +1078,33 @@ class Renderer:
             self.screen.blit(num_text, (center_x - num_text.get_width() // 2,
                                         center_y - 2))
 
-            # Health bar above (bigger with shadow)
+            # Health bar above (gradient fill with depth)
             bar_w = TILE_SIZE - 10
-            bar_h = 5
+            bar_h = 6
             bar_x = sx + 5
             bar_y = sy + 1
             # Dark shadow behind bar
-            pygame.draw.rect(self.screen, (20, 18, 15),
-                             pygame.Rect(bar_x, bar_y, bar_w + 1, bar_h + 1))
+            pygame.draw.rect(self.screen, (15, 12, 10),
+                             pygame.Rect(bar_x + 1, bar_y + 1, bar_w, bar_h))
+            # Background
+            pygame.draw.rect(self.screen, COLOR_HEALTH_BG,
+                             pygame.Rect(bar_x, bar_y, bar_w, bar_h))
+            # Gradient health fill
+            health_w = int(bar_w * player.health / player.max_health)
+            if health_w > 0:
+                for i in range(bar_h):
+                    t = i / bar_h
+                    r = int(60 + 120 * (1.0 - t * 0.6))
+                    g = int(160 + 40 * (1.0 - t))
+                    b = int(60 + 20 * (1.0 - t))
+                    pygame.draw.line(self.screen, (r, g, b),
+                                     (bar_x, bar_y + i), (bar_x + health_w, bar_y + i))
+                # Inner highlight line
+                pygame.draw.line(self.screen, (140, 220, 140),
+                                 (bar_x + 1, bar_y + 1), (bar_x + health_w - 1, bar_y + 1), 1)
+            # Border
             pygame.draw.rect(self.screen, COLOR_INK,
                              pygame.Rect(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2), 1)
-            health_w = int(bar_w * player.health / player.max_health)
-            pygame.draw.rect(self.screen, (80, 180, 80),
-                             pygame.Rect(bar_x, bar_y, health_w, bar_h))
             # HP text on bar
             hp_str = f"{player.health}/{player.max_health}"
             hp_surf = self.font_tiny.render(hp_str, True, (255, 255, 255))
@@ -973,6 +1209,30 @@ class Renderer:
                       (SCREEN_WIDTH - ornament_r - 2, play_h - ornament_r - 2)]:
             pygame.draw.circle(self.screen, (80, 60, 38), (x, y), ornament_r, 2)
             pygame.draw.circle(self.screen, (50, 35, 22), (x, y), 3)
+
+    def _update_and_draw_dust(self):
+        """Update and draw ambient dust particles (screen-space)."""
+        play_h = SCREEN_HEIGHT - HUD_PANEL_HEIGHT
+        dust_surf = pygame.Surface((SCREEN_WIDTH, play_h), pygame.SRCALPHA)
+        for p in self._dust_particles:
+            # Gentle drift with sine wave wobble
+            p["x"] += p["vx"] + math.sin(self.frame_count * 0.02 + p["drift_phase"]) * 0.1
+            p["y"] += p["vy"]
+            # Wrap around
+            if p["x"] < -5:
+                p["x"] = SCREEN_WIDTH + 5
+            elif p["x"] > SCREEN_WIDTH + 5:
+                p["x"] = -5
+            if p["y"] < -5:
+                p["y"] = play_h + 5
+            elif p["y"] > play_h + 5:
+                p["y"] = -5
+            # Twinkle alpha
+            a = int(p["alpha"] + 15 * math.sin(self.frame_count * 0.03 + p["drift_phase"]))
+            a = max(10, min(60, a))
+            pygame.draw.circle(dust_surf, (220, 210, 180, a),
+                               (int(p["x"]), int(p["y"])), p["size"])
+        self.screen.blit(dust_surf, (0, 0))
 
     def _spawn_animation(self, anim_event):
         """Create an animation from a game event."""
@@ -1265,7 +1525,7 @@ class Renderer:
         self.screen.blit(surf, (blit_x, blit_y))
 
     def _draw_torch_glow(self, players):
-        """Draw torch glow effect around alive players."""
+        """Draw torch glow effect around alive players using pre-rendered surface."""
         glow_radius = TILE_SIZE * 3
         for player in players:
             if not player.is_alive():
@@ -1274,14 +1534,15 @@ class Renderer:
             cx = sx + TILE_SIZE // 2
             cy = sy + TILE_SIZE // 2
 
-            glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
-            for r in range(glow_radius, 0, -4):
-                a = int(25 * (r / glow_radius))
-                color = (255, 180, 80, a)
-                pygame.draw.circle(glow_surf, color, (glow_radius, glow_radius), r)
-
-            flicker = int(math.sin(self.frame_count * 0.1 + player.player_id * 2.0) * 8)
-            self.screen.blit(glow_surf, (cx - glow_radius + flicker, cy - glow_radius))
+            # Flicker: slight size and position variation
+            flicker_x = int(math.sin(self.frame_count * 0.1 + player.player_id * 2.0) * 4)
+            flicker_y = int(math.cos(self.frame_count * 0.13 + player.player_id * 1.5) * 3)
+            # Intensity flicker
+            flicker_alpha = int(220 + 35 * math.sin(self.frame_count * 0.15 + player.player_id))
+            glow = self._torch_glow_surf.copy()
+            glow.set_alpha(min(255, flicker_alpha))
+            self.screen.blit(glow, (cx - glow_radius + flicker_x,
+                                     cy - glow_radius + flicker_y))
 
     def _draw_traps(self, game_logic):
         """Draw placed traps on the map."""
@@ -1500,37 +1761,60 @@ class Renderer:
             bar_x = 32
             bar_w = 200
             bar_h = 16
+            # Bar shadow
+            pygame.draw.rect(self.screen, (40, 30, 30),
+                             pygame.Rect(bar_x + 1, hp_y + 1, bar_w, bar_h),
+                             border_radius=3)
             # Bar background
             pygame.draw.rect(self.screen, COLOR_HEALTH_BG,
-                             pygame.Rect(bar_x, hp_y, bar_w, bar_h))
-            # Bar fill
+                             pygame.Rect(bar_x, hp_y, bar_w, bar_h),
+                             border_radius=3)
+            # Gradient bar fill
             hp_ratio = player.health / player.max_health if player.max_health > 0 else 0
             fill_w = int(bar_w * hp_ratio)
-            pygame.draw.rect(self.screen, COLOR_HEALTH_BAR,
-                             pygame.Rect(bar_x, hp_y, fill_w, bar_h))
+            if fill_w > 0:
+                fill_surf = pygame.Surface((fill_w, bar_h), pygame.SRCALPHA)
+                for i in range(bar_h):
+                    t = i / bar_h
+                    r = int(100 + 100 * (1.0 - t * 0.5))
+                    g = int(30 + 20 * (1.0 - t))
+                    b = int(30 + 10 * (1.0 - t))
+                    pygame.draw.line(fill_surf, (r, g, b), (0, i), (fill_w, i))
+                # Top highlight
+                pygame.draw.line(fill_surf, (240, 100, 100), (1, 1), (fill_w - 1, 1), 1)
+                self.screen.blit(fill_surf, (bar_x, hp_y))
             # Ink border
             pygame.draw.rect(self.screen, COLOR_INK,
-                             pygame.Rect(bar_x, hp_y, bar_w, bar_h), 2)
+                             pygame.Rect(bar_x, hp_y, bar_w, bar_h), 2,
+                             border_radius=3)
             # HP text on bar
             hp_str = f"{player.health}/{player.max_health}"
             hp_text = self.font_small.render(hp_str, True, (255, 255, 255))
             self.screen.blit(hp_text, (bar_x + bar_w // 2 - hp_text.get_width() // 2,
                                        hp_y + 1))
 
-            # XP bar (below HP bar)
-            xp_y = hp_y + bar_h + 2
-            xp_bar_h = 4
-            pygame.draw.rect(self.screen, (60, 50, 70),
-                             pygame.Rect(bar_x, xp_y, bar_w, xp_bar_h))
+            # XP bar (below HP bar, gradient purple)
+            xp_y = hp_y + bar_h + 3
+            xp_bar_h = 6
+            pygame.draw.rect(self.screen, (40, 35, 50),
+                             pygame.Rect(bar_x, xp_y, bar_w, xp_bar_h),
+                             border_radius=2)
             xp_ratio = player.xp / player.xp_to_next if player.xp_to_next > 0 else 0
             xp_fill = int(bar_w * xp_ratio)
-            pygame.draw.rect(self.screen, (140, 100, 200),
-                             pygame.Rect(bar_x, xp_y, xp_fill, xp_bar_h))
+            if xp_fill > 0:
+                for i in range(xp_bar_h):
+                    t = i / xp_bar_h
+                    r = int(120 + 40 * (1.0 - t))
+                    g = int(80 + 30 * (1.0 - t))
+                    b = int(180 + 30 * (1.0 - t))
+                    pygame.draw.line(self.screen, (r, g, b),
+                                     (bar_x, xp_y + i), (bar_x + xp_fill, xp_y + i))
             pygame.draw.rect(self.screen, COLOR_INK,
-                             pygame.Rect(bar_x, xp_y, bar_w, xp_bar_h), 1)
+                             pygame.Rect(bar_x, xp_y, bar_w, xp_bar_h), 1,
+                             border_radius=2)
             xp_label = self.font_tiny.render(
                 f"XP {player.xp}/{player.xp_to_next}", True, COLOR_INK)
-            self.screen.blit(xp_label, (bar_x + bar_w + 4, xp_y - 1))
+            self.screen.blit(xp_label, (bar_x + bar_w + 4, xp_y))
 
             # AP pips
             ap_y = hp_y + 22
